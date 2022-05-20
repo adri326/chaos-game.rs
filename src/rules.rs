@@ -65,10 +65,97 @@ impl<C: Choice> Rule for DefaultRule<C> {
     }
 }
 
+pub struct SpiralRule<R: Rule, S: Rng> {
+    rng: S,
+    rule: R,
+    delta_low: f64,
+    delta_high: f64,
+    epsilon_low: f64,
+    epsilon_high: f64,
+}
+
+impl<R: Rule, S: Rng> SpiralRule<R, S> {
+    pub fn new(
+        rng: S,
+        rule: R,
+        (delta_low, delta_high): (f64, f64),
+        (epsilon_low, epsilon_high): (f64, f64),
+    ) -> Self {
+        Self {
+            rule,
+            rng,
+            delta_low,
+            delta_high,
+            epsilon_low,
+            epsilon_high,
+        }
+    }
+
+    pub fn inner(&self) -> &R {
+        &self.rule
+    }
+}
+
+impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
+    fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize) {
+        let (mut next, index) = self.rule.next(previous, shape);
+
+        let amount = self.rng.gen_range((0.0)..=(1.0));
+        // Cov(δ, ε) = 0.0
+        let delta = self.delta_low + (self.delta_high - self.delta_low) * amount;
+        let epsilon = self.epsilon_low + (self.epsilon_high - self.epsilon_low) * amount;
+
+        let angle = next.y.atan2(next.x);
+        let radius = (next.x * next.x + next.y * next.y).sqrt();
+
+        next.x = (angle + delta).cos() * radius * epsilon;
+        next.y = (angle + delta).sin() * radius * epsilon;
+
+        (next, index)
+    }
+}
+
+pub struct OrRule<Left: Rule, Right: Rule, S: Rng> {
+    rng: S,
+    left: Left,
+    right: Right,
+    p: f64,
+}
+
+impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
+    pub fn new(rng: S, left: Left, right: Right, p: f64) -> Self {
+        Self {
+            rng,
+            left,
+            right,
+            p,
+        }
+    }
+
+    pub fn left(&self) -> &Left {
+        &self.left
+    }
+
+    pub fn right(&self) -> &Right {
+        &self.right
+    }
+}
+
+impl<Left: Rule, Right: Rule, S: Rng> Rule for OrRule<Left, Right, S> {
+    fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize) {
+        if self.rng.gen_range((0.0)..(1.0)) < self.p {
+            self.left.next(previous, shape)
+        } else {
+            self.right.next(previous, shape)
+        }
+    }
+}
+
 // === Choices ===
 
 macro_rules! simple_choice {
     ($name:tt) => {
+        #[derive(Clone)]
         pub struct $name<R: Rng = ThreadRng> {
             rng: R,
         }
@@ -89,6 +176,7 @@ macro_rules! simple_choice {
     };
 
     ($name:tt, $param:tt : $type:tt = $default:tt) => {
+        #[derive(Clone)]
         pub struct $name<R: Rng = ThreadRng> {
             rng: R,
             $param: $type,

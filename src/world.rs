@@ -1,5 +1,6 @@
 use super::rules::*;
 use super::shape::*;
+use super::*;
 
 #[derive(Clone)]
 pub struct World<R: Rule> {
@@ -101,9 +102,9 @@ impl<R: Rule> World<R> {
 
             let (r, g, b, n) = self.pixels[i];
             let a = 1.0 - (n as f64 * ratio).neg().exp();
-            let r = ((r / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
-            let g = ((g / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
-            let b = ((b / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
+            let r = ((r / n as f64 * a + BG_R * (1.0 - a)).powf(1.0 / 2.2) * 255.0) as u8;
+            let g = ((g / n as f64 * a + BG_G * (1.0 - a)).powf(1.0 / 2.2) * 255.0) as u8;
+            let b = ((b / n as f64 * a + BG_B * (1.0 - a)).powf(1.0 / 2.2) * 255.0) as u8;
 
             if n > 0 {
                 pixel[0] = r;
@@ -111,10 +112,10 @@ impl<R: Rule> World<R> {
                 pixel[2] = b;
                 pixel[3] = 255;
             } else {
-                pixel[0] = 0;
-                pixel[1] = 0;
-                pixel[2] = 0;
-                pixel[3] = 0;
+                pixel[0] = (BG_R.powf(1.0 / 2.2) * 255.0) as u8;
+                pixel[1] = (BG_G.powf(1.0 / 2.2) * 255.0) as u8;
+                pixel[2] = (BG_B.powf(1.0 / 2.2) * 255.0) as u8;
+                pixel[3] = 255;
             }
         }
     }

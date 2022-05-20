@@ -21,6 +21,12 @@ impl Point {
     pub fn color(&self) -> (f64, f64, f64) {
         (self.r, self.g, self.b)
     }
+
+    pub fn set_color(&mut self, color: (f64, f64, f64)) {
+        self.r = color.0;
+        self.g = color.1;
+        self.b = color.2;
+    }
 }
 
 pub type Shape = Vec<Point>;
@@ -52,12 +58,12 @@ pub fn from_srgb(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     )
 }
 
-pub fn colorize(shape: Shape, from: (f64, f64, f64), to: (f64, f64, f64)) -> Shape {
+pub fn colorize(shape: Shape, from: (f64, f64, f64), to: (f64, f64, f64), modulus: usize) -> Shape {
     let len = shape.len();
     let mut res = Vec::with_capacity(len);
 
     for (i, mut point) in shape.into_iter().enumerate() {
-        let ratio = i as f64 / (len - 1) as f64;
+        let ratio = (i % modulus) as f64 / (modulus - 1) as f64;
 
         point.r = from.0 + (to.0 - from.0) * ratio;
         point.g = from.1 + (to.1 - from.1) * ratio;
