@@ -38,17 +38,16 @@ impl<R: Rule> World<R> {
         self.pixels = vec![(0.0, 0.0, 0.0, 0); self.width * self.height];
     }
 
-    pub fn update(&mut self) {
+    pub fn update(&mut self, steps: usize) {
         let mut point = (Point::new(0.0, 0.0, (0.0, 0.0, 0.0)), 0);
-        const N_STEPS: usize = 1000000;
 
-        for _n in 0..N_STEPS {
+        for _n in 0..steps {
             point = self.rule.next(point, &self.shape);
 
             self.draw_pixel(point.0)
         }
 
-        self.steps += N_STEPS;
+        self.steps += steps;
     }
 
     #[inline]

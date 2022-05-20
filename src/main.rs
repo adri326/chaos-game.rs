@@ -43,14 +43,14 @@ fn main() -> Result<(), pixels::Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let choice = AvoidChoice::new(rand::thread_rng(), 1);
+    let choice = AvoidTwoChoice::new(rand::thread_rng(), 1, -1);
     let rule = DefaultRule::new(choice.clone(), 0.5, 2.0 / 3.0);
     let rule = OrRule::new(
         rand::thread_rng(),
         rule,
         SpiralRule::new(
             rand::thread_rng(),
-            DefaultRule::new(choice, 1.5, 1.0 / 3.0),
+            DefaultRule::new(AvoidChoice::new(rand::thread_rng(), 0), 1.5, 1.0 / 3.0),
             (0.0, 0.05),
             (1.0, 0.90),
         ),
@@ -64,8 +64,8 @@ fn main() -> Result<(), pixels::Error> {
             .flatten()
             .unwrap_or(3),
     );
-    let color_a = from_srgb(163, 55, 191);
-    let color_b = from_srgb(104, 106, 113);
+    let color_a = from_srgb(217, 73, 240);
+    let color_b = from_srgb(164, 168, 178);
     let shape = colorize(shape, color_a, color_b, 3);
 
     let mut world = World::new(WIDTH, HEIGHT, 1.1, 0.3, shape, rule);
@@ -96,7 +96,7 @@ fn main() -> Result<(), pixels::Error> {
                 world.resize(size.width, size.height);
             }
 
-            world.update();
+            world.update(500_000);
             world.draw(pixels.get_frame());
             if pixels
                 .render()

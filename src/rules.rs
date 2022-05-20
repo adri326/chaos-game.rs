@@ -100,7 +100,7 @@ impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
     fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize) {
         let (mut next, index) = self.rule.next(previous, shape);
 
-        let amount = self.rng.gen_range((0.0)..=(1.0));
+        let amount: f64 = self.rng.gen();
         // Cov(δ, ε) = 0.0
         let delta = self.delta_low + (self.delta_high - self.delta_low) * amount;
         let epsilon = self.epsilon_low + (self.epsilon_high - self.epsilon_low) * amount;
@@ -220,5 +220,58 @@ impl<R: Rng> Choice for AvoidChoice<R> {
         }
 
         (previous + inc) % shape.len()
+    }
+}
+
+#[derive(Clone)]
+pub struct AvoidTwoChoice<R: Rng = ThreadRng> {
+    rng: R,
+    diff: isize,
+    diff2: isize,
+    last: usize,
+}
+
+impl<R: Rng> AvoidTwoChoice<R> {
+    pub fn new(rng: R, diff: isize, diff2: isize) -> Self {
+        Self {
+            rng,
+            diff,
+            diff2,
+            last: 0,
+        }
+    }
+}
+
+impl Default for AvoidTwoChoice<ThreadRng> {
+    fn default() -> Self {
+        Self {
+            rng: rand::thread_rng(),
+            diff: 0,
+            diff2: 0,
+            last: 0,
+        }
+    }
+}
+
+impl<R: Rng> Choice for AvoidTwoChoice<R> {
+    #[inline]
+    fn choose_point(&mut self, previous: usize, shape: &Shape) -> usize {
+        let len = shape.len();
+        let diff = self.diff.rem_euclid(len as isize) as usize;
+        let diff2 = self.diff2.rem_euclid(len as isize) as usize;
+
+        let inc = loop {
+            let mut inc = self.rng.gen_range(0..len - 1);
+            if inc >= diff {
+                inc += 1;
+            }
+            if (previous + inc) % len != (self.last + diff2) % len {
+                break inc;
+            }
+        };
+
+        let res = (previous + inc) % len;
+        self.last = previous;
+        res
     }
 }
