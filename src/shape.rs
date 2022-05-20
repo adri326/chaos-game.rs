@@ -33,7 +33,7 @@ pub fn polygon(n: usize) -> Shape {
     let mut res = Vec::with_capacity(n);
 
     for i in 0..n {
-        let phase = i as f64 / n as f64 * std::f64::consts::TAU;
+        let phase = i as f64 / n as f64 * std::f64::consts::TAU - std::f64::consts::PI / 2.0;
         res.push(Point::new(
             phase.cos(),
             phase.sin(),
@@ -46,4 +46,29 @@ pub fn polygon(n: usize) -> Shape {
     }
 
     Shape::from(res)
+}
+
+pub fn from_srgb(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
+    (
+        (r as f64 / 255.0).powf(2.2),
+        (g as f64 / 255.0).powf(2.2),
+        (b as f64 / 255.0).powf(2.2),
+    )
+}
+
+pub fn colorize(shape: Shape, from: (f64, f64, f64), to: (f64, f64, f64)) -> Shape {
+    let len = shape.len();
+    let mut res = Vec::with_capacity(len);
+
+    for (i, mut point) in shape.into_iter().enumerate() {
+        let ratio = i as f64 / (len - 1) as f64;
+
+        point.r = from.0 + (to.0 - from.0) * ratio;
+        point.g = from.1 + (to.1 - from.1) * ratio;
+        point.b = from.2 + (to.2 - from.2) * ratio;
+
+        res.push(point);
+    }
+
+    res
 }
