@@ -41,12 +41,14 @@ fn main() -> Result<(), pixels::Error> {
 
     let choice = AvoidChoice::new(rand::thread_rng(), 1);
     let rule = DefaultRule::new(choice, 0.5, 2.0 / 3.0);
-    let shape = polygon(std::env::args().last().map(|a| a.parse::<usize>().ok()).flatten().unwrap_or(3));
-    let shape = colorize(
-        shape,
-        from_srgb(163, 55, 191),
-        from_srgb(104, 106, 113),
+    let shape = polygon(
+        std::env::args()
+            .last()
+            .map(|a| a.parse::<usize>().ok())
+            .flatten()
+            .unwrap_or(3),
     );
+    let shape = colorize(shape, from_srgb(163, 55, 191), from_srgb(104, 106, 113));
     let mut world = World::new(WIDTH, HEIGHT, 1.1, 0.3, shape, rule);
 
     event_loop.run(move |event, _, control_flow| {

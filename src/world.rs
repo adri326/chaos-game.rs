@@ -1,5 +1,5 @@
-use super::shape::*;
 use super::rules::*;
+use super::shape::*;
 
 #[derive(Clone)]
 pub struct World<R: Rule> {
@@ -10,7 +10,7 @@ pub struct World<R: Rule> {
     height: usize,
     rule: R,
     steps: usize,
-    pub shape: Shape
+    pub shape: Shape,
 }
 
 impl<R: Rule> World<R> {
@@ -25,7 +25,7 @@ impl<R: Rule> World<R> {
             pixels: vec![(0.0, 0.0, 0.0, 0); width * height],
             rule,
             steps: 0,
-            shape
+            shape,
         }
     }
 
@@ -60,7 +60,7 @@ impl<R: Rule> World<R> {
         let y = (y * ratio + cy).floor();
 
         if x < 0.0 || y < 0.0 {
-            return None
+            return None;
         }
 
         let x = x as usize;
@@ -96,14 +96,14 @@ impl<R: Rule> World<R> {
 
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             if i > self.width * self.height {
-                break
+                break;
             }
 
             let (r, g, b, n) = self.pixels[i];
             let a = 1.0 - (n as f64 * ratio).neg().exp();
-            let r = ((r / n as f64 * a).powf(1.0/2.2) * 255.0) as u8;
-            let g = ((g / n as f64 * a).powf(1.0/2.2) * 255.0) as u8;
-            let b = ((b / n as f64 * a).powf(1.0/2.2) * 255.0) as u8;
+            let r = ((r / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
+            let g = ((g / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
+            let b = ((b / n as f64 * a).powf(1.0 / 2.2) * 255.0) as u8;
 
             if n > 0 {
                 pixel[0] = r;

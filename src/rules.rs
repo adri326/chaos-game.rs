@@ -1,6 +1,6 @@
-use rand::Rng;
-use rand::rngs::ThreadRng;
 use super::shape::*;
+use rand::rngs::ThreadRng;
+use rand::Rng;
 
 pub trait Rule {
     fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize);
@@ -15,7 +15,7 @@ pub trait Choice {
 pub struct DefaultRule<C: Choice = DefaultChoice> {
     choice: C,
     move_ratio: f64,
-    color_ratio: f64
+    color_ratio: f64,
 }
 
 impl<C: Choice> DefaultRule<C> {
@@ -23,7 +23,7 @@ impl<C: Choice> DefaultRule<C> {
         Self {
             choice,
             move_ratio,
-            color_ratio
+            color_ratio,
         }
     }
 }
@@ -33,7 +33,7 @@ impl Default for DefaultRule<DefaultChoice> {
         Self {
             choice: DefaultChoice::default(),
             move_ratio: 0.5,
-            color_ratio: 1.0
+            color_ratio: 1.0,
         }
     }
 }
@@ -49,16 +49,19 @@ impl<C: Choice> Rule for DefaultRule<C> {
         let dg = point.g - previous.g;
         let db = point.b - previous.b;
 
-        (Point::new(
-            previous.x + dx * self.move_ratio,
-            previous.y + dy * self.move_ratio,
-            // point.color()
-            (
-                previous.r + dr * self.color_ratio,
-                previous.g + dg * self.color_ratio,
-                previous.b + db * self.color_ratio,
-            )
-        ), index)
+        (
+            Point::new(
+                previous.x + dx * self.move_ratio,
+                previous.y + dy * self.move_ratio,
+                // point.color()
+                (
+                    previous.r + dr * self.color_ratio,
+                    previous.g + dg * self.color_ratio,
+                    previous.b + db * self.color_ratio,
+                ),
+            ),
+            index,
+        )
     }
 }
 
@@ -67,21 +70,19 @@ impl<C: Choice> Rule for DefaultRule<C> {
 macro_rules! simple_choice {
     ($name:tt) => {
         pub struct $name<R: Rng = ThreadRng> {
-            rng: R
+            rng: R,
         }
 
         impl<R: Rng> $name<R> {
             pub fn new(rng: R) -> Self {
-                Self {
-                    rng
-                }
+                Self { rng }
             }
         }
 
         impl Default for $name<ThreadRng> {
             fn default() -> Self {
                 Self {
-                    rng: rand::thread_rng()
+                    rng: rand::thread_rng(),
                 }
             }
         }
@@ -90,15 +91,12 @@ macro_rules! simple_choice {
     ($name:tt, $param:tt : $type:tt = $default:tt) => {
         pub struct $name<R: Rng = ThreadRng> {
             rng: R,
-            $param: $type
+            $param: $type,
         }
 
         impl<R: Rng> $name<R> {
             pub fn new(rng: R, $param: $type) -> Self {
-                Self {
-                    rng,
-                    $param
-                }
+                Self { rng, $param }
             }
         }
 
@@ -106,11 +104,11 @@ macro_rules! simple_choice {
             fn default() -> Self {
                 Self {
                     rng: rand::thread_rng(),
-                    $param: $default
+                    $param: $default,
                 }
             }
         }
-    }
+    };
 }
 
 simple_choice!(DefaultChoice);
@@ -120,7 +118,6 @@ impl<R: Rng> Choice for DefaultChoice<R> {
         self.rng.gen_range(0..shape.len())
     }
 }
-
 
 simple_choice!(AvoidChoice, diff: isize = 0);
 

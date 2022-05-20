@@ -4,21 +4,17 @@ pub struct Point {
     pub y: f64,
     pub r: f64,
     pub g: f64,
-    pub b: f64
+    pub b: f64,
 }
 
 impl Point {
-    pub fn new(
-        x: f64,
-        y: f64,
-        (r, g, b): (f64, f64, f64)
-    ) -> Self {
+    pub fn new(x: f64, y: f64, (r, g, b): (f64, f64, f64)) -> Self {
         Self {
             x,
             y,
             r: r * r,
             g: g * g,
-            b: b * b
+            b: b * b,
         }
     }
 
@@ -40,8 +36,8 @@ pub fn polygon(n: usize) -> Shape {
             (
                 0.5 + 0.5 * (phase * 0.6 + 0.7).cos(),
                 0.5,
-                0.5 + 0.5 * (phase * 0.6 + 0.7).sin()
-            )
+                0.5 + 0.5 * (phase * 0.6 + 0.7).sin(),
+            ),
         ));
     }
 
