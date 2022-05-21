@@ -1,3 +1,5 @@
+use super::GAMMA;
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct Point {
     pub x: f64,
@@ -52,9 +54,9 @@ pub fn polygon(n: usize) -> Shape {
 
 pub fn from_srgb(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
     (
-        (r as f64 / 255.0).powf(2.2),
-        (g as f64 / 255.0).powf(2.2),
-        (b as f64 / 255.0).powf(2.2),
+        (r as f64 / 255.0).powf(GAMMA),
+        (g as f64 / 255.0).powf(GAMMA),
+        (b as f64 / 255.0).powf(GAMMA),
     )
 }
 

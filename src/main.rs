@@ -14,12 +14,17 @@ use world::*;
 pub mod rules;
 use rules::*;
 
-const WIDTH: u32 = 600;
-const HEIGHT: u32 = 400;
+// const WIDTH: u32 = 1920 * 4;
+// const HEIGHT: u32 = 1080 * 4;
+const WIDTH: u32 = 1200;
+const HEIGHT: u32 = 1200;
+const RESIZE: bool = false;
 
-pub const BG_R: f64 = 0.0001;
-pub const BG_G: f64 = 0.0001;
-pub const BG_B: f64 = 0.0001;
+pub const BG_R: f64 = 0.001;
+pub const BG_G: f64 = 0.001;
+pub const BG_B: f64 = 0.001;
+
+pub const GAMMA: f64 = 2.2;
 
 #[allow(dead_code)]
 const PHI: f64 = 1.61803398874989484820458683436563811772030;
@@ -50,7 +55,7 @@ fn main() -> Result<(), pixels::Error> {
         rule,
         SpiralRule::new(
             rand::thread_rng(),
-            DefaultRule::new(AvoidChoice::new(rand::thread_rng(), 0), 1.5, 1.0 / 3.0),
+            DefaultRule::new(AvoidChoice::new(rand::thread_rng(), 0), 1.5, 2.0 / 3.0),
             (0.0, 0.05),
             (1.0, 0.90),
         ),
@@ -64,11 +69,11 @@ fn main() -> Result<(), pixels::Error> {
             .flatten()
             .unwrap_or(3),
     );
-    let color_a = from_srgb(217, 73, 240);
-    let color_b = from_srgb(164, 168, 178);
+    let color_a = from_srgb(214, 106, 148);
+    let color_b = from_srgb(138, 78, 101);
     let shape = colorize(shape, color_a, color_b, 3);
 
-    let mut world = World::new(WIDTH, HEIGHT, 1.1, 0.3, shape, rule);
+    let mut world = World::new(WIDTH, HEIGHT, 0.8, 0.3, shape, rule);
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::RedrawRequested(_) = event {
@@ -87,13 +92,27 @@ fn main() -> Result<(), pixels::Error> {
         if input.update(&event) {
             if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                 *control_flow = ControlFlow::Exit;
+
+                let mut buffer = vec![0; world.width() as usize * world.height() as usize * 4];
+                world.draw(&mut buffer);
+                image::save_buffer(
+                    "./output.png",
+                    &buffer,
+                    world.width(),
+                    world.height(),
+                    image::ColorType::Rgba8,
+                )
+                .expect("Couldn't save result to disk!");
+
                 return;
             }
 
             if let Some(size) = input.window_resized() {
                 pixels.resize_surface(size.width, size.height);
-                pixels.resize_buffer(size.width, size.height);
-                world.resize(size.width, size.height);
+                if RESIZE {
+                    pixels.resize_buffer(size.width, size.height);
+                    world.resize(size.width, size.height);
+                }
             }
 
             world.update(500_000);
