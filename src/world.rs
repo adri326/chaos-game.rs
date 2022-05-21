@@ -209,32 +209,11 @@ impl Workers {
     ) -> Self {
         let (main_tx, main_rx) = mpsc::channel();
 
-        let mut threads = Vec::with_capacity(n_threads);
-        // for _n in 0..n_threads {
-        //     let params = params.clone();
-        //     let (thread_tx, thread_rx) = mpsc::channel();
-        //     let main_tx = main_tx.clone();
-
-        //     let handle = thread::spawn(move || {
-        //         let worker = Worker {
-        //             rx: thread_rx,
-        //             tx: main_tx,
-        //             pixels: vec![Pixel::default(); width * height],
-        //             width,
-        //             height,
-        //             params
-        //         };
-
-        //         worker.run();
-        //     });
-        //     threads.push((handle, thread_tx));
-        // }
-
         let mut res = Self {
             pixels: vec![Pixel::default(); width * height],
             receiver: main_rx,
             transmit: main_tx,
-            threads,
+            threads: Vec::with_capacity(n_threads),
             n_threads,
         };
 
@@ -255,6 +234,10 @@ impl Workers {
                 .join()
                 .expect("Error while waiting for worker to stop!");
         }
+
+        let (main_tx, main_rx) = mpsc::channel();
+        self.receiver = main_rx;
+        self.transmit = main_tx;
     }
 
     pub fn start<R: Rule + 'static>(
@@ -263,6 +246,7 @@ impl Workers {
         width: usize,
         height: usize,
     ) {
+
         for _n in 0..self.n_threads {
             let params = params.clone();
             let (thread_tx, thread_rx) = mpsc::channel();
@@ -308,7 +292,12 @@ impl<R: Rule + Clone> Worker<R> {
             let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
             let mut history = vec![0; 4];
 
-            for _n in 0..self.params.steps {
+            for n in 0..self.params.steps {
+                if n % 1000 == 0 {
+                    if let Ok(()) = self.rx.try_recv() {
+                        return;
+                    }
+                }
                 for _nscatter in 0..self.params.scatter_steps {
                     let (new_point, _) =
                         self.params
@@ -336,7 +325,7 @@ impl<R: Rule + Clone> Worker<R> {
                 .expect("Error while transmitting results from worker thread!");
 
             if let Ok(()) = self.rx.try_recv() {
-                break;
+                return;
             }
 
             self.pixels = vec![Pixel::default(); self.width * self.height];

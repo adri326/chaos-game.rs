@@ -16,9 +16,9 @@ use rules::*;
 
 // const WIDTH: u32 = 1920 * 4;
 // const HEIGHT: u32 = 1080 * 4;
-const WIDTH: u32 = 1200;
-const HEIGHT: u32 = 1200;
-const RESIZE: bool = false;
+const WIDTH: u32 = 1024;
+const HEIGHT: u32 = 1024;
+const RESIZE: bool = true;
 
 pub const BG_R: f64 = 0.001;
 pub const BG_G: f64 = 0.001;
@@ -48,21 +48,54 @@ fn main() -> Result<(), pixels::Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let choice = AvoidTwoChoice::new(1, -1);
-    let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
+    let rule = TensorRule::new(TensorChoice::new(
+            NeighborChoice::new(2),
+            AvoidTwoChoice::new(0, 0),
+            0.5,
+            false
+        ))
+        .scale(0.2)
+        .jump_center(true)
+        .color_small(true)
+        .move_ratio(2.0/3.0)
+        .jump_ratio(0.5);
+
     let rule = OrRule::new(
         rule,
-        DarkenRule::new(
-            SpiralRule::new(
-                DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0),
-                (0.0, 0.05),
-                (1.0, 0.90),
-            ),
-            0.5,
-        ),
+        DarkenRule::new(SpiralRule::new(
+            TensorRule::new(TensorChoice::new(
+                NeighborChoice::new(1),
+                NeighborChoice::new(1),
+                0.5,
+                false
+            ))
+            .scale(0.2)
+            .jump_center(false)
+            .color_small(false)
+            .move_ratio(-0.25)
+            .jump_ratio(PHI - 1.0),
+            (-0.1, 0.1),
+            (1.0, 1.0)
+        ), 0.8),
         0.9,
-        0.4,
+        0.25
     );
+
+    // let choice = AvoidTwoChoice::new(1, -1);
+    // let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
+    // let rule = OrRule::new(
+    //     rule,
+    //     DarkenRule::new(
+    //         SpiralRule::new(
+    //             DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0),
+    //             (0.0, 0.05),
+    //             (1.0, 0.90),
+    //         ),
+    //         0.5,
+    //     ),
+    //     0.9,
+    //     0.4,
+    // );
 
     let shape = polygon(
         std::env::args()
@@ -71,19 +104,19 @@ fn main() -> Result<(), pixels::Error> {
             .flatten()
             .unwrap_or(3),
     );
-    let color_a = from_srgb(214, 106, 148);
-    let color_b = from_srgb(119, 59, 95);
-    let shape = colorize(shape, color_a, color_b, 3);
+    let color_a = from_srgb(202, 147, 242);
+    let color_b = from_srgb(120, 52, 120);
+    let shape = colorize(shape, color_a, color_b, 5);
 
     let params = WorldParams {
-        zoom: 0.8,
+        zoom: 1.2,
         rule,
         shape,
         steps: 1_000_000,
         scatter_steps: 7,
     };
 
-    let mut world = World::new(WIDTH, HEIGHT, 0.3, params, 16);
+    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 16);
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::RedrawRequested(_) = event {

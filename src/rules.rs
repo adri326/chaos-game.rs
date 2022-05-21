@@ -2,6 +2,9 @@ use super::shape::*;
 // use rand::rngs::RuleRng;
 use rand::{Rng, SeedableRng};
 
+pub mod tensor;
+pub use tensor::*;
+
 type RuleRng = rand_xoshiro::Xoshiro256Plus;
 
 pub trait Rule: Clone + Send {
@@ -225,58 +228,62 @@ impl<Left: Rule, Right: Rule> Rule for OrRule<Left, Right> {
 
 // === Choices ===
 
-macro_rules! simple_choice {
-    ($name:tt) => {
-        #[derive(Clone)]
-        pub struct $name {
-            rng: RuleRng,
-        }
+mod crate_macro {
+    macro_rules! simple_choice {
+        ($name:tt) => {
+            #[derive(Clone)]
+            pub struct $name {
+                rng: RuleRng,
+            }
 
-        impl $name {
-            pub fn new() -> Self {
-                Self {
-                    rng: RuleRng::from_entropy(),
+            impl $name {
+                pub fn new() -> Self {
+                    Self {
+                        rng: RuleRng::from_entropy(),
+                    }
                 }
             }
-        }
 
-        impl Default for $name {
-            fn default() -> Self {
-                Self {
-                    rng: RuleRng::from_entropy(),
+            impl Default for $name {
+                fn default() -> Self {
+                    Self {
+                        rng: RuleRng::from_entropy(),
+                    }
                 }
             }
-        }
-    };
+        };
 
-    ($name:tt, $param:tt : $type:tt = $default:tt) => {
-        #[derive(Clone)]
-        pub struct $name {
-            rng: RuleRng,
-            $param: $type,
-        }
+        ($name:tt, $param:tt : $type:tt = $default:tt) => {
+            #[derive(Clone)]
+            pub struct $name {
+                rng: RuleRng,
+                $param: $type,
+            }
 
-        impl $name {
-            pub fn new($param: $type) -> Self {
-                Self {
-                    rng: RuleRng::from_entropy(),
-                    $param,
+            impl $name {
+                pub fn new($param: $type) -> Self {
+                    Self {
+                        rng: RuleRng::from_entropy(),
+                        $param,
+                    }
                 }
             }
-        }
 
-        impl Default for $name {
-            fn default() -> Self {
-                Self {
-                    rng: RuleRng::from_entropy(),
-                    $param: $default,
+            impl Default for $name {
+                fn default() -> Self {
+                    Self {
+                        rng: RuleRng::from_entropy(),
+                        $param: $default,
+                    }
                 }
             }
-        }
-    };
+        };
+    }
+
+    pub(crate) use simple_choice;
 }
 
-simple_choice!(DefaultChoice);
+crate_macro::simple_choice!(DefaultChoice);
 
 impl Choice for DefaultChoice {
     fn choose_point(&mut self, _history: &[usize], shape: &Shape) -> usize {
@@ -284,7 +291,7 @@ impl Choice for DefaultChoice {
     }
 }
 
-simple_choice!(AvoidChoice, diff: isize = 0);
+crate_macro::simple_choice!(AvoidChoice, diff: isize = 0);
 
 impl Choice for AvoidChoice {
     #[inline]
@@ -349,5 +356,18 @@ impl Choice for AvoidTwoChoice {
 
         let res = (current + inc) % len;
         res
+    }
+}
+
+crate_macro::simple_choice!(NeighborChoice, dist: usize = 1);
+
+impl Choice for NeighborChoice {
+    #[inline]
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
+        if self.rng.gen() {
+            (history[0] + self.dist) % shape.len()
+        } else {
+            (history[0] + shape.len() - self.dist) % shape.len()
+        }
     }
 }
