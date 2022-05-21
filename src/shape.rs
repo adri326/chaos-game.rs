@@ -29,6 +29,11 @@ impl Point {
         self.g = color.1;
         self.b = color.2;
     }
+
+    pub fn lightness(&self) -> f64 {
+        // Since we're in linear color space, we can just use the L = 0.2126 * r + 0.7152 * g + 0.0722 * b formula:
+        0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
+    }
 }
 
 pub type Shape = Vec<Point>;

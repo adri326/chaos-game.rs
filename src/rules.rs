@@ -3,11 +3,11 @@ use rand::rngs::ThreadRng;
 use rand::Rng;
 
 pub trait Rule {
-    fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize);
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize);
 }
 
 pub trait Choice {
-    fn choose_point(&mut self, previous: usize, shape: &Shape) -> usize;
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize;
 }
 
 // === Rules ===
@@ -39,8 +39,8 @@ impl Default for DefaultRule<DefaultChoice> {
 }
 
 impl<C: Choice> Rule for DefaultRule<C> {
-    fn next(&mut self, (previous, index): (Point, usize), shape: &Shape) -> (Point, usize) {
-        let index = self.choice.choose_point(index, shape);
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
+        let index = self.choice.choose_point(history, shape);
         let point = shape[index];
         let dx = point.x - previous.x;
         let dy = point.y - previous.y;
@@ -97,8 +97,8 @@ impl<R: Rule, S: Rng> SpiralRule<R, S> {
 }
 
 impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
-    fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize) {
-        let (mut next, index) = self.rule.next(previous, shape);
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
+        let (mut next, index) = self.rule.next(previous, history, shape);
 
         let amount: f64 = self.rng.gen();
         // Cov(δ, ε) = 0.0
@@ -142,11 +142,11 @@ impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
 }
 
 impl<Left: Rule, Right: Rule, S: Rng> Rule for OrRule<Left, Right, S> {
-    fn next(&mut self, previous: (Point, usize), shape: &Shape) -> (Point, usize) {
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
         if self.rng.gen_range((0.0)..(1.0)) < self.p {
-            self.left.next(previous, shape)
+            self.left.next(previous, history, shape)
         } else {
-            self.right.next(previous, shape)
+            self.right.next(previous, history, shape)
         }
     }
 }
@@ -202,7 +202,7 @@ macro_rules! simple_choice {
 simple_choice!(DefaultChoice);
 
 impl<R: Rng> Choice for DefaultChoice<R> {
-    fn choose_point(&mut self, _previous: usize, shape: &Shape) -> usize {
+    fn choose_point(&mut self, _history: &[usize], shape: &Shape) -> usize {
         self.rng.gen_range(0..shape.len())
     }
 }
@@ -211,7 +211,7 @@ simple_choice!(AvoidChoice, diff: isize = 0);
 
 impl<R: Rng> Choice for AvoidChoice<R> {
     #[inline]
-    fn choose_point(&mut self, previous: usize, shape: &Shape) -> usize {
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
         let diff = self.diff.rem_euclid(shape.len() as isize) as usize;
 
         let mut inc = self.rng.gen_range(0..shape.len() - 1);
@@ -219,7 +219,7 @@ impl<R: Rng> Choice for AvoidChoice<R> {
             inc += 1;
         }
 
-        (previous + inc) % shape.len()
+        (history[0] + inc) % shape.len()
     }
 }
 
@@ -228,7 +228,6 @@ pub struct AvoidTwoChoice<R: Rng = ThreadRng> {
     rng: R,
     diff: isize,
     diff2: isize,
-    last: usize,
 }
 
 impl<R: Rng> AvoidTwoChoice<R> {
@@ -237,7 +236,6 @@ impl<R: Rng> AvoidTwoChoice<R> {
             rng,
             diff,
             diff2,
-            last: 0,
         }
     }
 }
@@ -248,30 +246,31 @@ impl Default for AvoidTwoChoice<ThreadRng> {
             rng: rand::thread_rng(),
             diff: 0,
             diff2: 0,
-            last: 0,
         }
     }
 }
 
 impl<R: Rng> Choice for AvoidTwoChoice<R> {
     #[inline]
-    fn choose_point(&mut self, previous: usize, shape: &Shape) -> usize {
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
         let len = shape.len();
         let diff = self.diff.rem_euclid(len as isize) as usize;
         let diff2 = self.diff2.rem_euclid(len as isize) as usize;
+
+        let current = history[0];
+        let last = history.get(1).copied().unwrap_or(current);
 
         let inc = loop {
             let mut inc = self.rng.gen_range(0..len - 1);
             if inc >= diff {
                 inc += 1;
             }
-            if (previous + inc) % len != (self.last + diff2) % len {
+            if (current + inc) % len != (last + diff2) % len {
                 break inc;
             }
         };
 
-        let res = (previous + inc) % len;
-        self.last = previous;
+        let res = (current + inc) % len;
         res
     }
 }

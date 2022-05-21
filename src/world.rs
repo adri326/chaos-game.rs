@@ -3,8 +3,55 @@ use super::shape::*;
 use super::*;
 
 #[derive(Clone)]
+pub struct Pixel {
+    pub r_sum: f64,
+    pub g_sum: f64,
+    pub b_sum: f64,
+    pub n: f64,
+    pub l_sum: f64,
+    pub l_squared: f64
+}
+
+impl Default for Pixel {
+    fn default() -> Self {
+        Self {
+            r_sum: 0.0,
+            g_sum: 0.0,
+            b_sum: 0.0,
+            n: 0.0,
+            l_sum: 0.0,
+            l_squared: 0.0
+        }
+    }
+}
+
+impl Pixel {
+    pub fn add(&mut self, point: Point) {
+        self.r_sum += point.r;
+        self.g_sum += point.g;
+        self.b_sum += point.b;
+        self.n += 1.0;
+
+        let lightness = point.lightness();
+        self.l_sum += lightness;
+        self.l_squared += lightness * lightness;
+    }
+
+    /// σ(Y)² = 𝔼[Y²] - 𝔼[Y]² with Y = ΣX/n
+    /// Thus, σ(X)² = n*σ(Y)²/n² = σ(Y)²/n
+    pub fn error_squared(&self) -> f64 {
+        if self.n == 0.0 {
+            0.0
+        } else {
+            let res = (self.l_squared / self.n) - (self.l_sum / self.n) * (self.l_sum / self.n);
+            res / self.n
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct World<R: Rule> {
-    pixels: Vec<(f64, f64, f64, u64)>,
+    pixels: Vec<Pixel>,
     pub zoom: f64,
     pub gain: f64,
     width: usize,
@@ -23,7 +70,7 @@ impl<R: Rule> World<R> {
             height,
             zoom,
             gain,
-            pixels: vec![(0.0, 0.0, 0.0, 0); width * height],
+            pixels: vec![Pixel::default(); width * height],
             rule,
             steps: 0,
             shape,
@@ -43,16 +90,21 @@ impl<R: Rule> World<R> {
         self.height = height as usize;
         self.steps = 0;
 
-        self.pixels = vec![(0.0, 0.0, 0.0, 0); self.width * self.height];
+        self.pixels = vec![Pixel::default(); self.width * self.height];
     }
 
     pub fn update(&mut self, steps: usize) {
-        let mut point = (Point::new(0.0, 0.0, (0.0, 0.0, 0.0)), 0);
+        let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
+        let mut history = vec![0; 4];
 
         for _n in 0..steps {
-            point = self.rule.next(point, &self.shape);
+            let (new_point, new_index) = self.rule.next(point, &history, &self.shape);
 
-            self.draw_pixel(point.0)
+            history.rotate_right(1);
+            history[0] = new_index;
+
+            self.draw_pixel(new_point);
+            point = new_point;
         }
 
         self.steps += steps;
@@ -85,10 +137,7 @@ impl<R: Rule> World<R> {
         if let Some((x, y)) = self.get_coord(point.x, point.y) {
             let mut pixel = &mut self.pixels[x + y * self.width];
 
-            pixel.0 += point.r;
-            pixel.1 += point.g;
-            pixel.2 += point.b;
-            pixel.3 += 1;
+            pixel.add(point);
         }
     }
 
@@ -107,13 +156,13 @@ impl<R: Rule> World<R> {
                 break;
             }
 
-            let (r, g, b, n) = self.pixels[i];
-            let a = 1.0 - (n as f64 * ratio).neg().exp();
-            let r = ((r / n as f64 * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let g = ((g / n as f64 * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let b = ((b / n as f64 * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let p = &self.pixels[i];
+            let a = 1.0 - (p.n * ratio).neg().exp();
+            let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let b = ((p.b_sum / p.n * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
 
-            if n > 0 {
+            if p.n > 0.0 {
                 pixel[0] = r;
                 pixel[1] = g;
                 pixel[2] = b;
@@ -125,5 +174,19 @@ impl<R: Rule> World<R> {
                 pixel[3] = 255;
             }
         }
+    }
+
+    pub fn steps(&self) -> usize {
+        self.steps
+    }
+
+    pub fn mse(&self) -> f64 {
+        let mut res = 0.0;
+
+        for pixel in self.pixels.iter() {
+            res += pixel.error_squared();
+        }
+
+        res / self.pixels.len() as f64
     }
 }

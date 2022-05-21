@@ -16,9 +16,11 @@ use rules::*;
 
 // const WIDTH: u32 = 1920 * 4;
 // const HEIGHT: u32 = 1080 * 4;
-const WIDTH: u32 = 1200;
-const HEIGHT: u32 = 1200;
+const WIDTH: u32 = 1024;
+const HEIGHT: u32 = 1024;
 const RESIZE: bool = false;
+
+const MAX_SAMPLES: usize = 100_000_000;
 
 pub const BG_R: f64 = 0.001;
 pub const BG_G: f64 = 0.001;
@@ -90,7 +92,8 @@ fn main() -> Result<(), pixels::Error> {
         }
 
         if input.update(&event) {
-            if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+            if world.steps() >= MAX_SAMPLES || input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+                println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
                 *control_flow = ControlFlow::Exit;
 
                 let mut buffer = vec![0; world.width() as usize * world.height() as usize * 4];
