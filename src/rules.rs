@@ -2,10 +2,16 @@ use super::shape::*;
 // use rand::rngs::RuleRng;
 use rand::{Rng, SeedableRng};
 
-type RuleRng = rand::rngs::StdRng;
+type RuleRng = rand_xoshiro::Xoshiro256Plus;
 
 pub trait Rule: Clone + Send {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize);
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize);
 }
 
 pub trait Choice: Clone + Send {
@@ -42,7 +48,13 @@ impl Default for DefaultRule<DefaultChoice> {
 }
 
 impl<C: Choice> Rule for DefaultRule<C> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, _scatter: bool) -> (Point, usize) {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        _scatter: bool,
+    ) -> (Point, usize) {
         let index = self.choice.choose_point(history, shape);
         let point = shape[index];
         let dx = point.x - previous.x;
@@ -71,23 +83,23 @@ impl<C: Choice> Rule for DefaultRule<C> {
 #[derive(Clone)]
 pub struct DarkenRule<R: Rule> {
     rule: R,
-    amount: f64
+    amount: f64,
 }
 
 impl<R: Rule> DarkenRule<R> {
-    pub fn new(
-        rule: R,
-        amount: f64
-    ) -> Self {
-        Self {
-            rule,
-            amount
-        }
+    pub fn new(rule: R, amount: f64) -> Self {
+        Self { rule, amount }
     }
 }
 
 impl<R: Rule> Rule for DarkenRule<R> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize) {
         let (mut next, index) = self.rule.next(previous, history, shape, scatter);
 
         next.r *= self.amount;
@@ -130,7 +142,13 @@ impl<R: Rule> SpiralRule<R> {
 }
 
 impl<R: Rule> Rule for SpiralRule<R> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize) {
         let (mut next, index) = self.rule.next(previous, history, shape, scatter);
 
         let amount: f64 = self.rng.gen();
@@ -178,12 +196,24 @@ impl<Left: Rule, Right: Rule> OrRule<Left, Right> {
 }
 
 impl<Left: Rule, Right: Rule> Rule for OrRule<Left, Right> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize) {
         let p = if scatter { self.p_scatter } else { self.p };
         let (mut res, prob) = if self.rng.gen_range((0.0)..(1.0)) < p {
-            (self.left.next(previous, history, shape, scatter), self.p / p)
+            (
+                self.left.next(previous, history, shape, scatter),
+                self.p / p,
+            )
         } else {
-            (self.right.next(previous, history, shape, scatter), (1.0 - self.p) / (1.0 - p))
+            (
+                self.right.next(previous, history, shape, scatter),
+                (1.0 - self.p) / (1.0 - p),
+            )
         };
 
         if scatter {
@@ -204,7 +234,9 @@ macro_rules! simple_choice {
 
         impl $name {
             pub fn new() -> Self {
-                Self { rng: RuleRng::from_entropy() }
+                Self {
+                    rng: RuleRng::from_entropy(),
+                }
             }
         }
 
@@ -226,7 +258,10 @@ macro_rules! simple_choice {
 
         impl $name {
             pub fn new($param: $type) -> Self {
-                Self { rng: RuleRng::from_entropy(), $param }
+                Self {
+                    rng: RuleRng::from_entropy(),
+                    $param,
+                }
             }
         }
 

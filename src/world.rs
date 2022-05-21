@@ -1,8 +1,8 @@
 use super::rules::*;
 use super::shape::*;
 use super::*;
-use std::sync::mpsc::{Sender, Receiver, self};
-use std::thread::{JoinHandle, self};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::{self, JoinHandle};
 
 #[derive(Clone)]
 pub struct Pixel {
@@ -11,7 +11,7 @@ pub struct Pixel {
     pub b_sum: f64,
     pub n: f64,
     pub l_sum: f64,
-    pub l_squared: f64
+    pub l_squared: f64,
 }
 
 impl Default for Pixel {
@@ -22,7 +22,7 @@ impl Default for Pixel {
             b_sum: 0.0,
             n: 0.0,
             l_sum: 0.0,
-            l_squared: 0.0
+            l_squared: 0.0,
         }
     }
 }
@@ -66,7 +66,7 @@ pub struct WorldParams<R: Rule + Clone> {
     pub rule: R,
     pub steps: usize,
     pub scatter_steps: usize,
-    pub shape: Shape
+    pub shape: Shape,
 }
 
 pub struct World<R: Rule + Clone> {
@@ -94,12 +94,19 @@ struct Worker<R: Rule + Clone + 'static> {
 
     width: usize,
     height: usize,
+    ratio: f64,
 
-    params: WorldParams<R>
+    params: WorldParams<R>,
 }
 
 impl<R: Rule + Clone + 'static> World<R> {
-    pub fn new(width: u32, height: u32, gain: f64, params: WorldParams<R>, n_threads: usize) -> Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        gain: f64,
+        params: WorldParams<R>,
+        n_threads: usize,
+    ) -> Self {
         let width = width as usize;
         let height = height as usize;
 
@@ -112,7 +119,7 @@ impl<R: Rule + Clone + 'static> World<R> {
             total_steps: 0,
 
             params,
-            workers
+            workers,
         }
     }
 
@@ -135,7 +142,8 @@ impl<R: Rule + Clone + 'static> World<R> {
 
         // self.pixels = vec![Pixel::default(); self.width * self.height];
         self.workers.stop();
-        self.workers.start(self.params.clone(), self.width, self.height);
+        self.workers
+            .start(self.params.clone(), self.width, self.height);
     }
 
     pub fn update(&mut self) {
@@ -193,37 +201,46 @@ impl<R: Rule + Clone + 'static> World<R> {
 }
 
 impl Workers {
-    pub fn new<R: Rule + 'static>(params: WorldParams<R>, width: usize, height: usize, n_threads: usize) -> Self {
+    pub fn new<R: Rule + 'static>(
+        params: WorldParams<R>,
+        width: usize,
+        height: usize,
+        n_threads: usize,
+    ) -> Self {
         let (main_tx, main_rx) = mpsc::channel();
 
         let mut threads = Vec::with_capacity(n_threads);
-        for _n in 0..n_threads {
-            let params = params.clone();
-            let (thread_tx, thread_rx) = mpsc::channel();
-            let main_tx = main_tx.clone();
+        // for _n in 0..n_threads {
+        //     let params = params.clone();
+        //     let (thread_tx, thread_rx) = mpsc::channel();
+        //     let main_tx = main_tx.clone();
 
-            let handle = thread::spawn(move || {
-                let worker = Worker {
-                    rx: thread_rx,
-                    tx: main_tx,
-                    pixels: vec![Pixel::default(); width * height],
-                    width,
-                    height,
-                    params
-                };
+        //     let handle = thread::spawn(move || {
+        //         let worker = Worker {
+        //             rx: thread_rx,
+        //             tx: main_tx,
+        //             pixels: vec![Pixel::default(); width * height],
+        //             width,
+        //             height,
+        //             params
+        //         };
 
-                worker.run();
-            });
-            threads.push((handle, thread_tx));
-        }
+        //         worker.run();
+        //     });
+        //     threads.push((handle, thread_tx));
+        // }
 
-        Self {
+        let mut res = Self {
             pixels: vec![Pixel::default(); width * height],
             receiver: main_rx,
             transmit: main_tx,
             threads,
-            n_threads
-        }
+            n_threads,
+        };
+
+        res.start(params, width, height);
+
+        res
     }
 
     pub fn stop(&mut self) {
@@ -234,11 +251,18 @@ impl Workers {
         }
 
         for worker in threads.into_iter() {
-            (worker.0).join().expect("Error while waiting for worker to stop!");
+            (worker.0)
+                .join()
+                .expect("Error while waiting for worker to stop!");
         }
     }
 
-    pub fn start<R: Rule + 'static>(&mut self, params: WorldParams<R>, width: usize, height: usize) {
+    pub fn start<R: Rule + 'static>(
+        &mut self,
+        params: WorldParams<R>,
+        width: usize,
+        height: usize,
+    ) {
         for _n in 0..self.n_threads {
             let params = params.clone();
             let (thread_tx, thread_rx) = mpsc::channel();
@@ -251,7 +275,8 @@ impl Workers {
                     pixels: vec![Pixel::default(); width * height],
                     width,
                     height,
-                    params
+                    params,
+                    ratio: 0.0,
                 };
 
                 worker.run();
@@ -278,17 +303,24 @@ impl Workers {
 
 impl<R: Rule + Clone> Worker<R> {
     pub fn run(mut self) {
+        self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
         loop {
             let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
             let mut history = vec![0; 4];
 
             for _n in 0..self.params.steps {
                 for _nscatter in 0..self.params.scatter_steps {
-                    let (new_point, _) = self.params.rule.next(point, &history, &self.params.shape, true);
+                    let (new_point, _) =
+                        self.params
+                            .rule
+                            .next(point, &history, &self.params.shape, true);
                     self.draw_pixel(new_point);
                 }
 
-                let (new_point, new_index) = self.params.rule.next(point, &history, &self.params.shape, false);
+                let (new_point, new_index) =
+                    self.params
+                        .rule
+                        .next(point, &history, &self.params.shape, false);
 
                 history.rotate_right(1);
                 history[0] = new_index;
@@ -299,10 +331,12 @@ impl<R: Rule + Clone> Worker<R> {
 
             let steps = self.params.steps * (1 + self.params.scatter_steps);
 
-            self.tx.send((self.pixels, steps)).expect("Error while transmitting results from worker thread!");
+            self.tx
+                .send((self.pixels, steps))
+                .expect("Error while transmitting results from worker thread!");
 
             if let Ok(()) = self.rx.try_recv() {
-                break
+                break;
             }
 
             self.pixels = vec![Pixel::default(); self.width * self.height];
@@ -311,12 +345,11 @@ impl<R: Rule + Clone> Worker<R> {
 
     #[inline]
     pub fn get_coord(&self, x: f64, y: f64) -> Option<(usize, usize)> {
-        let ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
         let cx = self.width as f64 / 2.0;
         let cy = self.height as f64 / 2.0;
 
-        let x = (x * ratio + cx).floor();
-        let y = (y * ratio + cy).floor();
+        let x = (x * self.ratio + cx).floor();
+        let y = (y * self.ratio + cy).floor();
 
         if x < 0.0 || y < 0.0 {
             return None;

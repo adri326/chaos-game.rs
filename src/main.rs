@@ -52,13 +52,16 @@ fn main() -> Result<(), pixels::Error> {
     let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
     let rule = OrRule::new(
         rule,
-        DarkenRule::new(SpiralRule::new(
-            DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0),
-            (0.0, 0.05),
-            (1.0, 0.90),
-        ), 0.5),
+        DarkenRule::new(
+            SpiralRule::new(
+                DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0),
+                (0.0, 0.05),
+                (1.0, 0.90),
+            ),
+            0.5,
+        ),
         0.9,
-        0.4
+        0.4,
     );
 
     let shape = polygon(
@@ -77,7 +80,7 @@ fn main() -> Result<(), pixels::Error> {
         rule,
         shape,
         steps: 1_000_000,
-        scatter_steps: 7
+        scatter_steps: 7,
     };
 
     let mut world = World::new(WIDTH, HEIGHT, 0.3, params, 16);
