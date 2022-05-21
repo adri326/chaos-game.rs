@@ -7,6 +7,7 @@ pub struct Point {
     pub r: f64,
     pub g: f64,
     pub b: f64,
+    pub weight: f64,
 }
 
 impl Point {
@@ -14,14 +15,19 @@ impl Point {
         Self {
             x,
             y,
-            r: r * r,
-            g: g * g,
-            b: b * b,
+            r,
+            g,
+            b,
+            weight: 1.0,
         }
     }
 
     pub fn color(&self) -> (f64, f64, f64) {
         (self.r, self.g, self.b)
+    }
+
+    pub fn mul_weight(&mut self, weight: f64) {
+        self.weight *= weight;
     }
 
     pub fn set_color(&mut self, color: (f64, f64, f64)) {

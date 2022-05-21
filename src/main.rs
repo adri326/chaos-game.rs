@@ -62,6 +62,7 @@ fn main() -> Result<(), pixels::Error> {
             (1.0, 0.90),
         ),
         0.95,
+        0.4
     );
 
     let shape = polygon(
@@ -72,7 +73,7 @@ fn main() -> Result<(), pixels::Error> {
             .unwrap_or(3),
     );
     let color_a = from_srgb(214, 106, 148);
-    let color_b = from_srgb(138, 78, 101);
+    let color_b = from_srgb(119, 59, 95);
     let shape = colorize(shape, color_a, color_b, 3);
 
     let mut world = World::new(WIDTH, HEIGHT, 0.8, 0.3, shape, rule);
@@ -118,7 +119,7 @@ fn main() -> Result<(), pixels::Error> {
                 }
             }
 
-            world.update(500_000);
+            world.update(250_000, 7);
             world.draw(pixels.get_frame());
             if pixels
                 .render()

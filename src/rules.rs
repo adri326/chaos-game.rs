@@ -3,7 +3,7 @@ use rand::rngs::ThreadRng;
 use rand::Rng;
 
 pub trait Rule {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize);
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize);
 }
 
 pub trait Choice {
@@ -39,7 +39,7 @@ impl Default for DefaultRule<DefaultChoice> {
 }
 
 impl<C: Choice> Rule for DefaultRule<C> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, _scatter: bool) -> (Point, usize) {
         let index = self.choice.choose_point(history, shape);
         let point = shape[index];
         let dx = point.x - previous.x;
@@ -97,8 +97,8 @@ impl<R: Rule, S: Rng> SpiralRule<R, S> {
 }
 
 impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
-        let (mut next, index) = self.rule.next(previous, history, shape);
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
 
         let amount: f64 = self.rng.gen();
         // Cov(δ, ε) = 0.0
@@ -120,15 +120,17 @@ pub struct OrRule<Left: Rule, Right: Rule, S: Rng> {
     left: Left,
     right: Right,
     p: f64,
+    p_scatter: f64,
 }
 
 impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
-    pub fn new(rng: S, left: Left, right: Right, p: f64) -> Self {
+    pub fn new(rng: S, left: Left, right: Right, p: f64, p_scatter: f64) -> Self {
         Self {
             rng,
             left,
             right,
             p,
+            p_scatter,
         }
     }
 
@@ -142,12 +144,18 @@ impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
 }
 
 impl<Left: Rule, Right: Rule, S: Rng> Rule for OrRule<Left, Right, S> {
-    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape) -> (Point, usize) {
-        if self.rng.gen_range((0.0)..(1.0)) < self.p {
-            self.left.next(previous, history, shape)
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+        let p = if scatter { self.p_scatter } else { self.p };
+        let (mut res, prob) = if self.rng.gen_range((0.0)..(1.0)) < p {
+            (self.left.next(previous, history, shape, scatter), self.p / p)
         } else {
-            self.right.next(previous, history, shape)
+            (self.right.next(previous, history, shape, scatter), (1.0 - self.p) / (1.0 - p))
+        };
+
+        if scatter {
+            res.0.mul_weight(prob);
         }
+        res
     }
 }
 

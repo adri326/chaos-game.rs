@@ -27,14 +27,14 @@ impl Default for Pixel {
 
 impl Pixel {
     pub fn add(&mut self, point: Point) {
-        self.r_sum += point.r;
-        self.g_sum += point.g;
-        self.b_sum += point.b;
-        self.n += 1.0;
+        self.r_sum += point.r * point.weight;
+        self.g_sum += point.g * point.weight;
+        self.b_sum += point.b * point.weight;
+        self.n += point.weight;
 
         let lightness = point.lightness();
-        self.l_sum += lightness;
-        self.l_squared += lightness * lightness;
+        self.l_sum += lightness * point.weight;
+        self.l_squared += lightness * lightness * point.weight;
     }
 
     /// σ(Y)² = 𝔼[Y²] - 𝔼[Y]² with Y = ΣX/n
@@ -93,12 +93,17 @@ impl<R: Rule> World<R> {
         self.pixels = vec![Pixel::default(); self.width * self.height];
     }
 
-    pub fn update(&mut self, steps: usize) {
+    pub fn update(&mut self, steps: usize, scatter_steps: usize) {
         let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
         let mut history = vec![0; 4];
 
         for _n in 0..steps {
-            let (new_point, new_index) = self.rule.next(point, &history, &self.shape);
+            for _nscatter in 0..scatter_steps {
+                let (new_point, _) = self.rule.next(point, &history, &self.shape, true);
+                self.draw_pixel(new_point);
+            }
+
+            let (new_point, new_index) = self.rule.next(point, &history, &self.shape, false);
 
             history.rotate_right(1);
             history[0] = new_index;
@@ -107,7 +112,7 @@ impl<R: Rule> World<R> {
             point = new_point;
         }
 
-        self.steps += steps;
+        self.steps += steps * (1 + scatter_steps);
     }
 
     #[inline]
@@ -135,9 +140,7 @@ impl<R: Rule> World<R> {
     #[inline]
     pub fn draw_pixel(&mut self, point: Point) {
         if let Some((x, y)) = self.get_coord(point.x, point.y) {
-            let mut pixel = &mut self.pixels[x + y * self.width];
-
-            pixel.add(point);
+            self.pixels[x + y * self.width].add(point);
         }
     }
 
