@@ -1,17 +1,20 @@
 use super::shape::*;
-use rand::rngs::ThreadRng;
-use rand::Rng;
+// use rand::rngs::RuleRng;
+use rand::{Rng, SeedableRng};
 
-pub trait Rule {
+type RuleRng = rand::rngs::StdRng;
+
+pub trait Rule: Clone + Send {
     fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize);
 }
 
-pub trait Choice {
+pub trait Choice: Clone + Send {
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize;
 }
 
 // === Rules ===
 
+#[derive(Clone)]
 pub struct DefaultRule<C: Choice = DefaultChoice> {
     choice: C,
     move_ratio: f64,
@@ -65,8 +68,39 @@ impl<C: Choice> Rule for DefaultRule<C> {
     }
 }
 
-pub struct SpiralRule<R: Rule, S: Rng> {
-    rng: S,
+#[derive(Clone)]
+pub struct DarkenRule<R: Rule> {
+    rule: R,
+    amount: f64
+}
+
+impl<R: Rule> DarkenRule<R> {
+    pub fn new(
+        rule: R,
+        amount: f64
+    ) -> Self {
+        Self {
+            rule,
+            amount
+        }
+    }
+}
+
+impl<R: Rule> Rule for DarkenRule<R> {
+    fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
+        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
+
+        next.r *= self.amount;
+        next.g *= self.amount;
+        next.b *= self.amount;
+
+        (next, index)
+    }
+}
+
+#[derive(Clone)]
+pub struct SpiralRule<R: Rule> {
+    rng: RuleRng,
     rule: R,
     delta_low: f64,
     delta_high: f64,
@@ -74,16 +108,15 @@ pub struct SpiralRule<R: Rule, S: Rng> {
     epsilon_high: f64,
 }
 
-impl<R: Rule, S: Rng> SpiralRule<R, S> {
+impl<R: Rule> SpiralRule<R> {
     pub fn new(
-        rng: S,
         rule: R,
         (delta_low, delta_high): (f64, f64),
         (epsilon_low, epsilon_high): (f64, f64),
     ) -> Self {
         Self {
             rule,
-            rng,
+            rng: RuleRng::from_entropy(),
             delta_low,
             delta_high,
             epsilon_low,
@@ -96,7 +129,7 @@ impl<R: Rule, S: Rng> SpiralRule<R, S> {
     }
 }
 
-impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
+impl<R: Rule> Rule for SpiralRule<R> {
     fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
         let (mut next, index) = self.rule.next(previous, history, shape, scatter);
 
@@ -115,18 +148,19 @@ impl<R: Rule, S: Rng> Rule for SpiralRule<R, S> {
     }
 }
 
-pub struct OrRule<Left: Rule, Right: Rule, S: Rng> {
-    rng: S,
+#[derive(Clone)]
+pub struct OrRule<Left: Rule, Right: Rule> {
+    rng: RuleRng,
     left: Left,
     right: Right,
     p: f64,
     p_scatter: f64,
 }
 
-impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
-    pub fn new(rng: S, left: Left, right: Right, p: f64, p_scatter: f64) -> Self {
+impl<Left: Rule, Right: Rule> OrRule<Left, Right> {
+    pub fn new(left: Left, right: Right, p: f64, p_scatter: f64) -> Self {
         Self {
-            rng,
+            rng: RuleRng::from_entropy(),
             left,
             right,
             p,
@@ -143,7 +177,7 @@ impl<Left: Rule, Right: Rule, S: Rng> OrRule<Left, Right, S> {
     }
 }
 
-impl<Left: Rule, Right: Rule, S: Rng> Rule for OrRule<Left, Right, S> {
+impl<Left: Rule, Right: Rule> Rule for OrRule<Left, Right> {
     fn next(&mut self, previous: Point, history: &[usize], shape: &Shape, scatter: bool) -> (Point, usize) {
         let p = if scatter { self.p_scatter } else { self.p };
         let (mut res, prob) = if self.rng.gen_range((0.0)..(1.0)) < p {
@@ -164,20 +198,20 @@ impl<Left: Rule, Right: Rule, S: Rng> Rule for OrRule<Left, Right, S> {
 macro_rules! simple_choice {
     ($name:tt) => {
         #[derive(Clone)]
-        pub struct $name<R: Rng = ThreadRng> {
-            rng: R,
+        pub struct $name {
+            rng: RuleRng,
         }
 
-        impl<R: Rng> $name<R> {
-            pub fn new(rng: R) -> Self {
-                Self { rng }
+        impl $name {
+            pub fn new() -> Self {
+                Self { rng: RuleRng::from_entropy() }
             }
         }
 
-        impl Default for $name<ThreadRng> {
+        impl Default for $name {
             fn default() -> Self {
                 Self {
-                    rng: rand::thread_rng(),
+                    rng: RuleRng::from_entropy(),
                 }
             }
         }
@@ -185,21 +219,21 @@ macro_rules! simple_choice {
 
     ($name:tt, $param:tt : $type:tt = $default:tt) => {
         #[derive(Clone)]
-        pub struct $name<R: Rng = ThreadRng> {
-            rng: R,
+        pub struct $name {
+            rng: RuleRng,
             $param: $type,
         }
 
-        impl<R: Rng> $name<R> {
-            pub fn new(rng: R, $param: $type) -> Self {
-                Self { rng, $param }
+        impl $name {
+            pub fn new($param: $type) -> Self {
+                Self { rng: RuleRng::from_entropy(), $param }
             }
         }
 
-        impl Default for $name<ThreadRng> {
+        impl Default for $name {
             fn default() -> Self {
                 Self {
-                    rng: rand::thread_rng(),
+                    rng: RuleRng::from_entropy(),
                     $param: $default,
                 }
             }
@@ -209,7 +243,7 @@ macro_rules! simple_choice {
 
 simple_choice!(DefaultChoice);
 
-impl<R: Rng> Choice for DefaultChoice<R> {
+impl Choice for DefaultChoice {
     fn choose_point(&mut self, _history: &[usize], shape: &Shape) -> usize {
         self.rng.gen_range(0..shape.len())
     }
@@ -217,7 +251,7 @@ impl<R: Rng> Choice for DefaultChoice<R> {
 
 simple_choice!(AvoidChoice, diff: isize = 0);
 
-impl<R: Rng> Choice for AvoidChoice<R> {
+impl Choice for AvoidChoice {
     #[inline]
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
         let diff = self.diff.rem_euclid(shape.len() as isize) as usize;
@@ -232,33 +266,33 @@ impl<R: Rng> Choice for AvoidChoice<R> {
 }
 
 #[derive(Clone)]
-pub struct AvoidTwoChoice<R: Rng = ThreadRng> {
-    rng: R,
+pub struct AvoidTwoChoice {
+    rng: RuleRng,
     diff: isize,
     diff2: isize,
 }
 
-impl<R: Rng> AvoidTwoChoice<R> {
-    pub fn new(rng: R, diff: isize, diff2: isize) -> Self {
+impl AvoidTwoChoice {
+    pub fn new(diff: isize, diff2: isize) -> Self {
         Self {
-            rng,
+            rng: RuleRng::from_entropy(),
             diff,
             diff2,
         }
     }
 }
 
-impl Default for AvoidTwoChoice<ThreadRng> {
+impl Default for AvoidTwoChoice {
     fn default() -> Self {
         Self {
-            rng: rand::thread_rng(),
+            rng: RuleRng::from_entropy(),
             diff: 0,
             diff2: 0,
         }
     }
 }
 
-impl<R: Rng> Choice for AvoidTwoChoice<R> {
+impl Choice for AvoidTwoChoice {
     #[inline]
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
         let len = shape.len();

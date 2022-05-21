@@ -16,11 +16,9 @@ use rules::*;
 
 // const WIDTH: u32 = 1920 * 4;
 // const HEIGHT: u32 = 1080 * 4;
-const WIDTH: u32 = 1024;
-const HEIGHT: u32 = 1024;
+const WIDTH: u32 = 1200;
+const HEIGHT: u32 = 1200;
 const RESIZE: bool = false;
-
-const MAX_SAMPLES: usize = 100_000_000;
 
 pub const BG_R: f64 = 0.001;
 pub const BG_G: f64 = 0.001;
@@ -50,18 +48,16 @@ fn main() -> Result<(), pixels::Error> {
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
 
-    let choice = AvoidTwoChoice::new(rand::thread_rng(), 1, -1);
-    let rule = DefaultRule::new(choice.clone(), 0.5, 2.0 / 3.0);
+    let choice = AvoidTwoChoice::new(1, -1);
+    let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
     let rule = OrRule::new(
-        rand::thread_rng(),
         rule,
-        SpiralRule::new(
-            rand::thread_rng(),
-            DefaultRule::new(AvoidChoice::new(rand::thread_rng(), 0), 1.5, 2.0 / 3.0),
+        DarkenRule::new(SpiralRule::new(
+            DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0),
             (0.0, 0.05),
             (1.0, 0.90),
-        ),
-        0.95,
+        ), 0.5),
+        0.9,
         0.4
     );
 
@@ -76,7 +72,15 @@ fn main() -> Result<(), pixels::Error> {
     let color_b = from_srgb(119, 59, 95);
     let shape = colorize(shape, color_a, color_b, 3);
 
-    let mut world = World::new(WIDTH, HEIGHT, 0.8, 0.3, shape, rule);
+    let params = WorldParams {
+        zoom: 0.8,
+        rule,
+        shape,
+        steps: 1_000_000,
+        scatter_steps: 7
+    };
+
+    let mut world = World::new(WIDTH, HEIGHT, 0.3, params, 16);
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::RedrawRequested(_) = event {
@@ -93,7 +97,9 @@ fn main() -> Result<(), pixels::Error> {
         }
 
         if input.update(&event) {
-            if world.steps() >= MAX_SAMPLES || input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+            if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+                world.stop();
+                world.update();
                 println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
                 *control_flow = ControlFlow::Exit;
 
@@ -119,7 +125,7 @@ fn main() -> Result<(), pixels::Error> {
                 }
             }
 
-            world.update(250_000, 7);
+            world.update();
             world.draw(pixels.get_frame());
             if pixels
                 .render()
