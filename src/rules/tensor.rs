@@ -107,6 +107,43 @@ impl<C: Choice> Rule for TensorRule<C> {
 }
 
 #[derive(Clone)]
+pub struct TensoredRule<R: Rule> {
+    rule: R
+}
+
+impl<R: Rule> TensoredRule<R> {
+    pub fn new(rule: R) -> Self {
+        Self {
+            rule
+        }
+    }
+}
+
+impl<R: Rule + Default> Default for TensoredRule<R> {
+    fn default() -> Self {
+        Self {
+            rule: R::default()
+        }
+    }
+}
+
+impl<R: Rule> Rule for TensoredRule<R> {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize) {
+        let history2 = history.iter().map(|x| *x / shape.len()).collect::<Vec<_>>();
+
+        let (next, index) = self.rule.next(previous, &history2, shape, scatter);
+
+        (next, index * shape.len() + history[0] % shape.len())
+    }
+}
+
+#[derive(Clone)]
 pub struct TensorChoice<CBig: Choice = DefaultChoice, CSmall: Choice = DefaultChoice> {
     choice_big: CBig,
     choice_small: CSmall,

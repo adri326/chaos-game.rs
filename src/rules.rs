@@ -1,6 +1,6 @@
 use super::shape::*;
-// use rand::rngs::RuleRng;
 use rand::{Rng, SeedableRng};
+use rand_distr::Distribution;
 
 pub mod tensor;
 pub use tensor::*;
@@ -15,6 +15,45 @@ pub trait Rule: Clone + Send {
         shape: &Shape,
         scatter: bool,
     ) -> (Point, usize);
+
+    fn tensored(self) -> TensoredRule<Self> {
+        TensoredRule::new(self)
+    }
+
+    fn spiral(self, delta: (f64, f64), epsilon: (f64, f64)) -> SpiralRule<Self> {
+        SpiralRule::new(
+            self,
+            delta,
+            epsilon
+        )
+    }
+
+    fn discrete_spiral(self, (p, p_scatter): (f64, f64), delta: f64, epsilon: f64, darken: f64) -> DiscreteSpiralRule<Self> {
+        if p < 0.0 || p > 1.0 || p_scatter < 0.0 || p_scatter > 1.0 {
+            DiscreteSpiralRule::new(
+                self,
+                (1.0, 1.0),
+                delta,
+                epsilon,
+                darken
+            ).unwrap()
+        } else {
+            DiscreteSpiralRule::new(
+                self,
+                (p, p_scatter),
+                delta,
+                epsilon,
+                darken
+            ).unwrap()
+        }
+    }
+
+    fn darken(self, amount: f64) -> DarkenRule<Self> {
+        DarkenRule::new(
+            self,
+            amount
+        )
+    }
 }
 
 pub trait Choice: Clone + Send {
@@ -164,6 +203,76 @@ impl<R: Rule> Rule for SpiralRule<R> {
 
         next.x = (angle + delta).cos() * radius * epsilon;
         next.y = (angle + delta).sin() * radius * epsilon;
+
+        (next, index)
+    }
+}
+
+#[derive(Clone)]
+pub struct DiscreteSpiralRule<R: Rule> {
+    rule: R,
+    rng: RuleRng,
+    distribution: rand_distr::Geometric,
+    distribution_scatter: rand_distr::Geometric,
+    p: f64,
+    p_scatter: f64,
+    delta: f64,
+    epsilon: f64,
+    darken: f64,
+}
+
+impl<R: Rule> DiscreteSpiralRule<R> {
+    pub fn new(rule: R, (p, p_scatter): (f64, f64), delta: f64, epsilon: f64, darken: f64) -> Result<Self, rand_distr::GeoError> {
+        Ok(Self {
+            rule,
+            rng: RuleRng::from_entropy(),
+            distribution: rand_distr::Geometric::new(p)?,
+            distribution_scatter: rand_distr::Geometric::new(p_scatter)?,
+            p,
+            p_scatter,
+            delta,
+            epsilon,
+            darken
+        })
+    }
+}
+
+impl<R: Rule> Rule for DiscreteSpiralRule<R> {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize) {
+        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
+
+        let num = if scatter {
+            self.distribution_scatter.sample(&mut self.rng)
+        } else {
+            self.distribution.sample(&mut self.rng)
+        }.try_into().unwrap_or(i32::MAX);
+
+        if scatter {
+            let weight = ((1.0 - self.p) / (1.0 - self.p_scatter)).powi(num) * self.p / self.p_scatter;
+            next.mul_weight(weight);
+        }
+
+        if num > 0 {
+            let delta = self.delta * num as f64;
+            let epsilon = self.epsilon.powi(num);
+            let darken = self.darken.powi(num);
+
+            let angle = next.y.atan2(next.x);
+            let radius = (next.x * next.x + next.y * next.y).sqrt();
+
+            next.x = (angle + delta).cos() * radius * epsilon;
+            next.y = (angle + delta).sin() * radius * epsilon;
+
+            next.r *= darken;
+            next.g *= darken;
+            next.b *= darken;
+        }
 
         (next, index)
     }
@@ -369,5 +478,15 @@ impl Choice for NeighborChoice {
         } else {
             (history[0] + shape.len() - self.dist) % shape.len()
         }
+    }
+}
+
+crate_macro::simple_choice!(NeighborhoodChoice, max_dist: usize = 1);
+
+impl Choice for NeighborhoodChoice {
+    #[inline]
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
+        let choice = self.rng.gen_range(-(self.max_dist as isize)..=(self.max_dist as isize));
+        (history[0] as isize + choice).rem_euclid(shape.len() as isize) as usize
     }
 }

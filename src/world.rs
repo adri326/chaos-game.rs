@@ -3,6 +3,8 @@ use super::shape::*;
 use super::*;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
+use std::sync::Arc;
+use std_semaphore::Semaphore;
 
 #[derive(Clone)]
 pub struct Pixel {
@@ -10,7 +12,9 @@ pub struct Pixel {
     pub g_sum: f64,
     pub b_sum: f64,
     pub n: f64,
+    #[cfg(feature = "sigma")]
     pub l_sum: f64,
+    #[cfg(feature = "sigma")]
     pub l_squared: f64,
 }
 
@@ -21,7 +25,9 @@ impl Default for Pixel {
             g_sum: 0.0,
             b_sum: 0.0,
             n: 0.0,
+            #[cfg(feature = "sigma")]
             l_sum: 0.0,
+            #[cfg(feature = "sigma")]
             l_squared: 0.0,
         }
     }
@@ -34,9 +40,12 @@ impl Pixel {
         self.b_sum += point.b * point.weight;
         self.n += point.weight;
 
-        let lightness = point.lightness();
-        self.l_sum += lightness * point.weight;
-        self.l_squared += lightness * lightness * point.weight;
+        #[cfg(feature = "sigma")]
+        if true {
+            let lightness = point.lightness();
+            self.l_sum += lightness * point.weight;
+            self.l_squared += lightness * lightness * point.weight;
+        }
     }
 
     pub fn add_pixel(&mut self, other: Pixel) {
@@ -44,12 +53,18 @@ impl Pixel {
         self.g_sum += other.g_sum;
         self.b_sum += other.b_sum;
         self.n += other.n;
-        self.l_sum += other.l_sum;
-        self.l_squared += other.l_squared;
+
+        #[cfg(feature = "sigma")]
+        if true {
+            self.l_sum += other.l_sum;
+            self.l_squared += other.l_squared;
+        }
     }
 
     /// σ(Y)² = 𝔼[Y²] - 𝔼[Y]² with Y = ΣX/n
     /// Thus, σ(X)² = n*σ(Y)²/n² = σ(Y)²/n
+    #[inline]
+    #[cfg(feature = "sigma")]
     pub fn error_squared(&self) -> f64 {
         if self.n == 0.0 {
             0.0
@@ -57,6 +72,12 @@ impl Pixel {
             let res = (self.l_squared / self.n) - (self.l_sum / self.n) * (self.l_sum / self.n);
             res / self.n
         }
+    }
+
+    #[inline]
+    #[cfg(not(feature = "sigma"))]
+    pub fn error_squared(&self) -> f64 {
+        0.0
     }
 }
 
@@ -85,11 +106,14 @@ struct Workers {
     transmit: Sender<(Vec<Pixel>, usize)>,
     threads: Vec<(JoinHandle<()>, Sender<()>)>,
     n_threads: usize,
+    queue_sem: Arc<Semaphore>,
+    queue_length: isize,
 }
 
 struct Worker<R: Rule + Clone + 'static> {
     rx: Receiver<()>,
     tx: Sender<(Vec<Pixel>, usize)>,
+    tx_sem: Arc<Semaphore>,
     pixels: Vec<Pixel>,
 
     width: usize,
@@ -106,11 +130,12 @@ impl<R: Rule + Clone + 'static> World<R> {
         gain: f64,
         params: WorldParams<R>,
         n_threads: usize,
+        queue_length: isize
     ) -> Self {
         let width = width as usize;
         let height = height as usize;
 
-        let workers = Workers::new(params.clone(), width, height, n_threads);
+        let workers = Workers::new(params.clone(), width, height, n_threads, queue_length);
 
         Self {
             width,
@@ -190,13 +215,17 @@ impl<R: Rule + Clone + 'static> World<R> {
     }
 
     pub fn mse(&self) -> f64 {
-        let mut res = 0.0;
+        if cfg!(feature = "sigma") {
+            let mut res = 0.0;
 
-        for pixel in self.workers.pixels.iter() {
-            res += pixel.error_squared();
+            for pixel in self.workers.pixels.iter() {
+                res += pixel.error_squared();
+            }
+
+            res / self.workers.pixels.len() as f64
+        } else {
+            0.0
         }
-
-        res / self.workers.pixels.len() as f64
     }
 }
 
@@ -206,6 +235,7 @@ impl Workers {
         width: usize,
         height: usize,
         n_threads: usize,
+        queue_length: isize,
     ) -> Self {
         let (main_tx, main_rx) = mpsc::channel();
 
@@ -215,6 +245,8 @@ impl Workers {
             transmit: main_tx,
             threads: Vec::with_capacity(n_threads),
             n_threads,
+            queue_sem: Arc::new(Semaphore::new(queue_length)),
+            queue_length
         };
 
         res.start(params, width, height);
@@ -229,6 +261,12 @@ impl Workers {
             (worker.1).send(()).expect("Error while stopping worker!");
         }
 
+        // Note: prevent deadlock by allowing every thread to get past the semaphore condition
+        while let Ok(x) = self.receiver.try_recv() {
+            std::mem::drop(x);
+            self.queue_sem.release();
+        }
+
         for worker in threads.into_iter() {
             (worker.0)
                 .join()
@@ -238,6 +276,7 @@ impl Workers {
         let (main_tx, main_rx) = mpsc::channel();
         self.receiver = main_rx;
         self.transmit = main_tx;
+        self.queue_sem = Arc::new(Semaphore::new(self.queue_length));
     }
 
     pub fn start<R: Rule + 'static>(
@@ -251,11 +290,13 @@ impl Workers {
             let params = params.clone();
             let (thread_tx, thread_rx) = mpsc::channel();
             let main_tx = self.transmit.clone();
+            let tx_sem = Arc::clone(&self.queue_sem);
 
             let handle = thread::spawn(move || {
                 let worker = Worker {
                     rx: thread_rx,
                     tx: main_tx,
+                    tx_sem,
                     pixels: vec![Pixel::default(); width * height],
                     width,
                     height,
@@ -279,6 +320,7 @@ impl Workers {
             for (from, to) in pixels.into_iter().zip(self.pixels.iter_mut()) {
                 to.add_pixel(from);
             }
+            self.queue_sem.release();
         }
 
         total_steps
@@ -320,6 +362,7 @@ impl<R: Rule + Clone> Worker<R> {
 
             let steps = self.params.steps * (1 + self.params.scatter_steps);
 
+            self.tx_sem.acquire();
             self.tx
                 .send((self.pixels, steps))
                 .expect("Error while transmitting results from worker thread!");
