@@ -81,16 +81,15 @@ impl Pixel {
     }
 }
 
-#[derive(Clone)]
-pub struct WorldParams<R: Rule + Clone> {
+pub struct WorldParams<R: Rule> {
     pub zoom: f64,
-    pub rule: R,
+    pub rule: RuleBox<R>,
     pub steps: usize,
     pub scatter_steps: usize,
     pub shape: Shape,
 }
 
-pub struct World<R: Rule + Clone> {
+pub struct World<R: Rule> {
     pub gain: f64,
     width: usize,
     height: usize,
@@ -110,7 +109,7 @@ struct Workers {
     queue_length: isize,
 }
 
-struct Worker<R: Rule + Clone + 'static> {
+struct Worker<R: Rule + 'static> {
     rx: Receiver<()>,
     tx: Sender<(Vec<Pixel>, usize)>,
     tx_sem: Arc<Semaphore>,
@@ -123,7 +122,7 @@ struct Worker<R: Rule + Clone + 'static> {
     params: WorldParams<R>,
 }
 
-impl<R: Rule + Clone + 'static> World<R> {
+impl<R: Rule + 'static> World<R> {
     pub fn new(
         width: u32,
         height: u32,
@@ -327,7 +326,7 @@ impl Workers {
     }
 }
 
-impl<R: Rule + Clone> Worker<R> {
+impl<R: Rule> Worker<R> {
     pub fn run(mut self) {
         self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
         loop {
@@ -400,6 +399,18 @@ impl<R: Rule + Clone> Worker<R> {
     pub fn draw_pixel(&mut self, point: Point) {
         if let Some((x, y)) = self.get_coord(point.x, point.y) {
             self.pixels[x + y * self.width].add(point);
+        }
+    }
+}
+
+impl<R: Rule> Clone for WorldParams<R> {
+    fn clone(&self) -> Self {
+        Self {
+            zoom: self.zoom,
+            rule: self.rule.clone(),
+            steps: self.steps,
+            scatter_steps: self.scatter_steps,
+            shape: self.shape.clone()
         }
     }
 }

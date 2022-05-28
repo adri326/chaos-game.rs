@@ -14,12 +14,12 @@ use world::*;
 pub mod rules;
 use rules::*;
 
-const WIDTH: u32 = 1920 * 4;
-const HEIGHT: u32 = 1080 * 4;
-// const WIDTH: u32 = 1024;
-// const HEIGHT: u32 = 1024;
-const RESIZE: bool = false;
-const HEADLESS: bool = true;
+// const WIDTH: u32 = 1920 * 4;
+// const HEIGHT: u32 = 1080 * 4;
+const WIDTH: u32 = 1024;
+const HEIGHT: u32 = 1024;
+const RESIZE: bool = true;
+const HEADLESS: bool = false;
 
 pub const BG_R: f64 = 0.001;
 pub const BG_G: f64 = 0.001;
@@ -85,13 +85,13 @@ fn main() -> Result<(), pixels::Error> {
 
     let params = WorldParams {
         zoom: 1.25,
-        rule,
+        rule: RuleBox::new(rule),
         shape,
-        steps: 10_000_000,
-        scatter_steps: 9,
+        steps: 1_000_000,
+        scatter_steps: 3,
     };
 
-    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 15, 10);
+    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 2, 10);
 
     if HEADLESS {
         let (tx, rx) = std::sync::mpsc::channel();

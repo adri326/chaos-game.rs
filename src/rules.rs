@@ -2,12 +2,33 @@ use super::shape::*;
 use rand::{Rng, SeedableRng};
 use rand_distr::Distribution;
 
+#[cfg(feature = "box")]
+use dyn_clone::{DynClone, clone_box};
+
+#[cfg(feature = "box")]
+pub mod boxed;
+#[cfg(feature = "box")]
+pub use boxed::*;
+
+pub mod branch;
+pub use branch::*;
+
+pub mod color;
+pub use color::*;
+
 pub mod tensor;
 pub use tensor::*;
 
+pub mod transform;
+pub use transform::*;
+
+pub mod choice;
+pub use choice::*;
+
 type RuleRng = rand_xoshiro::Xoshiro256Plus;
 
-pub trait Rule: Clone + Send {
+#[cfg(feature = "box")]
+pub trait Rule: Send + DynClone {
     fn next(
         &mut self,
         previous: Point,
@@ -15,7 +36,20 @@ pub trait Rule: Clone + Send {
         shape: &Shape,
         scatter: bool,
     ) -> (Point, usize);
+}
 
+#[cfg(not(feature = "box"))]
+pub trait Rule: Sized + Send + Clone {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        scatter: bool,
+    ) -> (Point, usize);
+}
+
+pub trait RuleHelper: Sized + Rule {
     fn tensored(self) -> TensoredRule<Self> {
         TensoredRule::new(self)
     }
@@ -55,6 +89,11 @@ pub trait Rule: Clone + Send {
         )
     }
 }
+
+impl<R: Rule + Sized> RuleHelper for R {}
+
+#[cfg(feature = "box")]
+dyn_clone::clone_trait_object!(Rule);
 
 pub trait Choice: Clone + Send {
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize;
@@ -122,371 +161,70 @@ impl<C: Choice> Rule for DefaultRule<C> {
     }
 }
 
-#[derive(Clone)]
-pub struct DarkenRule<R: Rule> {
-    rule: R,
-    amount: f64,
-}
+#[cfg(feature = "box")]
+mod rule_box {
+    use super::*;
 
-impl<R: Rule> DarkenRule<R> {
-    pub fn new(rule: R, amount: f64) -> Self {
-        Self { rule, amount }
-    }
-}
+    pub struct RuleBox<R: Rule>(Box<R>);
 
-impl<R: Rule> Rule for DarkenRule<R> {
-    fn next(
-        &mut self,
-        previous: Point,
-        history: &[usize],
-        shape: &Shape,
-        scatter: bool,
-    ) -> (Point, usize) {
-        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
-
-        next.r *= self.amount;
-        next.g *= self.amount;
-        next.b *= self.amount;
-
-        (next, index)
-    }
-}
-
-#[derive(Clone)]
-pub struct SpiralRule<R: Rule> {
-    rng: RuleRng,
-    rule: R,
-    delta_low: f64,
-    delta_high: f64,
-    epsilon_low: f64,
-    epsilon_high: f64,
-}
-
-impl<R: Rule> SpiralRule<R> {
-    pub fn new(
-        rule: R,
-        (delta_low, delta_high): (f64, f64),
-        (epsilon_low, epsilon_high): (f64, f64),
-    ) -> Self {
-        Self {
-            rule,
-            rng: RuleRng::from_entropy(),
-            delta_low,
-            delta_high,
-            epsilon_low,
-            epsilon_high,
+    impl<R: Rule> RuleBox<R> {
+        pub fn new(rule: R) -> Self {
+            Self(Box::new(rule))
         }
     }
 
-    pub fn inner(&self) -> &R {
-        &self.rule
-    }
-}
-
-impl<R: Rule> Rule for SpiralRule<R> {
-    fn next(
-        &mut self,
-        previous: Point,
-        history: &[usize],
-        shape: &Shape,
-        scatter: bool,
-    ) -> (Point, usize) {
-        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
-
-        let amount: f64 = self.rng.gen();
-        // Cov(δ, ε) = 0.0
-        let delta = self.delta_low + (self.delta_high - self.delta_low) * amount;
-        let epsilon = self.epsilon_low + (self.epsilon_high - self.epsilon_low) * amount;
-
-        let angle = next.y.atan2(next.x);
-        let radius = (next.x * next.x + next.y * next.y).sqrt();
-
-        next.x = (angle + delta).cos() * radius * epsilon;
-        next.y = (angle + delta).sin() * radius * epsilon;
-
-        (next, index)
-    }
-}
-
-#[derive(Clone)]
-pub struct DiscreteSpiralRule<R: Rule> {
-    rule: R,
-    rng: RuleRng,
-    distribution: rand_distr::Geometric,
-    distribution_scatter: rand_distr::Geometric,
-    p: f64,
-    p_scatter: f64,
-    delta: f64,
-    epsilon: f64,
-    darken: f64,
-}
-
-impl<R: Rule> DiscreteSpiralRule<R> {
-    pub fn new(rule: R, (p, p_scatter): (f64, f64), delta: f64, epsilon: f64, darken: f64) -> Result<Self, rand_distr::GeoError> {
-        Ok(Self {
-            rule,
-            rng: RuleRng::from_entropy(),
-            distribution: rand_distr::Geometric::new(p)?,
-            distribution_scatter: rand_distr::Geometric::new(p_scatter)?,
-            p,
-            p_scatter,
-            delta,
-            epsilon,
-            darken
-        })
-    }
-}
-
-impl<R: Rule> Rule for DiscreteSpiralRule<R> {
-    fn next(
-        &mut self,
-        previous: Point,
-        history: &[usize],
-        shape: &Shape,
-        scatter: bool,
-    ) -> (Point, usize) {
-        let (mut next, index) = self.rule.next(previous, history, shape, scatter);
-
-        let num = if scatter {
-            self.distribution_scatter.sample(&mut self.rng)
-        } else {
-            self.distribution.sample(&mut self.rng)
-        }.try_into().unwrap_or(i32::MAX);
-
-        if scatter {
-            let weight = ((1.0 - self.p) / (1.0 - self.p_scatter)).powi(num) * self.p / self.p_scatter;
-            next.mul_weight(weight);
-        }
-
-        if num > 0 {
-            let delta = self.delta * num as f64;
-            let epsilon = self.epsilon.powi(num);
-            let darken = self.darken.powi(num);
-
-            let angle = next.y.atan2(next.x);
-            let radius = (next.x * next.x + next.y * next.y).sqrt();
-
-            next.x = (angle + delta).cos() * radius * epsilon;
-            next.y = (angle + delta).sin() * radius * epsilon;
-
-            next.r *= darken;
-            next.g *= darken;
-            next.b *= darken;
-        }
-
-        (next, index)
-    }
-}
-
-#[derive(Clone)]
-pub struct OrRule<Left: Rule, Right: Rule> {
-    rng: RuleRng,
-    left: Left,
-    right: Right,
-    p: f64,
-    p_scatter: f64,
-}
-
-impl<Left: Rule, Right: Rule> OrRule<Left, Right> {
-    pub fn new(left: Left, right: Right, p: f64, p_scatter: f64) -> Self {
-        Self {
-            rng: RuleRng::from_entropy(),
-            left,
-            right,
-            p,
-            p_scatter,
+    impl<R: Rule> Clone for RuleBox<R> {
+        fn clone(&self) -> Self {
+            Self(clone_box(self.0.as_ref()))
         }
     }
 
-    pub fn left(&self) -> &Left {
-        &self.left
-    }
+    impl<R: Rule> std::ops::Deref for RuleBox<R> {
+        type Target = R;
 
-    pub fn right(&self) -> &Right {
-        &self.right
-    }
-}
-
-impl<Left: Rule, Right: Rule> Rule for OrRule<Left, Right> {
-    fn next(
-        &mut self,
-        previous: Point,
-        history: &[usize],
-        shape: &Shape,
-        scatter: bool,
-    ) -> (Point, usize) {
-        let p = if scatter { self.p_scatter } else { self.p };
-        let (mut res, prob) = if self.rng.gen_range((0.0)..(1.0)) < p {
-            (
-                self.left.next(previous, history, shape, scatter),
-                self.p / p,
-            )
-        } else {
-            (
-                self.right.next(previous, history, shape, scatter),
-                (1.0 - self.p) / (1.0 - p),
-            )
-        };
-
-        if scatter {
-            res.0.mul_weight(prob);
+        fn deref(&self) -> &Self::Target {
+            self.0.as_ref()
         }
-        res
-    }
-}
-
-// === Choices ===
-
-mod crate_macro {
-    macro_rules! simple_choice {
-        ($name:tt) => {
-            #[derive(Clone)]
-            pub struct $name {
-                rng: RuleRng,
-            }
-
-            impl $name {
-                pub fn new() -> Self {
-                    Self {
-                        rng: RuleRng::from_entropy(),
-                    }
-                }
-            }
-
-            impl Default for $name {
-                fn default() -> Self {
-                    Self {
-                        rng: RuleRng::from_entropy(),
-                    }
-                }
-            }
-        };
-
-        ($name:tt, $param:tt : $type:tt = $default:tt) => {
-            #[derive(Clone)]
-            pub struct $name {
-                rng: RuleRng,
-                $param: $type,
-            }
-
-            impl $name {
-                pub fn new($param: $type) -> Self {
-                    Self {
-                        rng: RuleRng::from_entropy(),
-                        $param,
-                    }
-                }
-            }
-
-            impl Default for $name {
-                fn default() -> Self {
-                    Self {
-                        rng: RuleRng::from_entropy(),
-                        $param: $default,
-                    }
-                }
-            }
-        };
     }
 
-    pub(crate) use simple_choice;
-}
-
-crate_macro::simple_choice!(DefaultChoice);
-
-impl Choice for DefaultChoice {
-    fn choose_point(&mut self, _history: &[usize], shape: &Shape) -> usize {
-        self.rng.gen_range(0..shape.len())
-    }
-}
-
-crate_macro::simple_choice!(AvoidChoice, diff: isize = 0);
-
-impl Choice for AvoidChoice {
-    #[inline]
-    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
-        let diff = self.diff.rem_euclid(shape.len() as isize) as usize;
-
-        let mut inc = self.rng.gen_range(0..shape.len() - 1);
-        if inc >= diff {
-            inc += 1;
-        }
-
-        (history[0] + inc) % shape.len()
-    }
-}
-
-#[derive(Clone)]
-pub struct AvoidTwoChoice {
-    rng: RuleRng,
-    diff: isize,
-    diff2: isize,
-}
-
-impl AvoidTwoChoice {
-    pub fn new(diff: isize, diff2: isize) -> Self {
-        Self {
-            rng: RuleRng::from_entropy(),
-            diff,
-            diff2,
+    impl<R: Rule> std::ops::DerefMut for RuleBox<R> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.0.as_mut()
         }
     }
 }
 
-impl Default for AvoidTwoChoice {
-    fn default() -> Self {
-        Self {
-            rng: RuleRng::from_entropy(),
-            diff: 0,
-            diff2: 0,
+#[cfg(not(feature = "box"))]
+mod rule_box {
+    use super::*;
+
+    pub struct RuleBox<R: Rule>(R);
+
+    impl<R: Rule> RuleBox<R> {
+        pub fn new(rule: R) -> Self {
+            Self(rule)
+        }
+    }
+
+    impl<R: Rule> Clone for RuleBox<R> {
+        fn clone(&self) -> Self {
+            Self(self.0.clone())
+        }
+    }
+
+    impl<R: Rule> std::ops::Deref for RuleBox<R> {
+        type Target = R;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl<R: Rule> std::ops::DerefMut for RuleBox<R> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.0
         }
     }
 }
 
-impl Choice for AvoidTwoChoice {
-    #[inline]
-    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
-        let len = shape.len();
-        let diff = self.diff.rem_euclid(len as isize) as usize;
-        let diff2 = self.diff2.rem_euclid(len as isize) as usize;
-
-        let current = history[0];
-        let last = history.get(1).copied().unwrap_or(current);
-
-        let inc = loop {
-            let mut inc = self.rng.gen_range(0..len - 1);
-            if inc >= diff {
-                inc += 1;
-            }
-            if (current + inc) % len != (last + diff2) % len {
-                break inc;
-            }
-        };
-
-        let res = (current + inc) % len;
-        res
-    }
-}
-
-crate_macro::simple_choice!(NeighborChoice, dist: usize = 1);
-
-impl Choice for NeighborChoice {
-    #[inline]
-    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
-        if self.rng.gen() {
-            (history[0] + self.dist) % shape.len()
-        } else {
-            (history[0] + shape.len() - self.dist) % shape.len()
-        }
-    }
-}
-
-crate_macro::simple_choice!(NeighborhoodChoice, max_dist: usize = 1);
-
-impl Choice for NeighborhoodChoice {
-    #[inline]
-    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
-        let choice = self.rng.gen_range(-(self.max_dist as isize)..=(self.max_dist as isize));
-        (history[0] as isize + choice).rem_euclid(shape.len() as isize) as usize
-    }
-}
+pub use rule_box::RuleBox;

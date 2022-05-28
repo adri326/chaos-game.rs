@@ -68,6 +68,7 @@ impl Default for TensorRule<TensorChoice> {
         }
     }
 }
+
 impl<C: Choice> Rule for TensorRule<C> {
     fn next(
         &mut self,
@@ -106,15 +107,14 @@ impl<C: Choice> Rule for TensorRule<C> {
     }
 }
 
-#[derive(Clone)]
 pub struct TensoredRule<R: Rule> {
-    rule: R
+    rule: RuleBox<R>
 }
 
 impl<R: Rule> TensoredRule<R> {
     pub fn new(rule: R) -> Self {
         Self {
-            rule
+            rule: RuleBox::new(rule)
         }
     }
 }
@@ -122,7 +122,15 @@ impl<R: Rule> TensoredRule<R> {
 impl<R: Rule + Default> Default for TensoredRule<R> {
     fn default() -> Self {
         Self {
-            rule: R::default()
+            rule: RuleBox::new(R::default())
+        }
+    }
+}
+
+impl<R: Rule> Clone for TensoredRule<R> {
+    fn clone(&self) -> Self {
+        Self {
+            rule: self.rule.clone()
         }
     }
 }
