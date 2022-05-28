@@ -1,8 +1,7 @@
 use super::*;
 
-#[derive(Clone)]
 pub struct TensorRule<C: Choice = TensorChoice> {
-    choice: C,
+    choice: RuleBox<C>,
     pub move_ratio: f64,
     pub jump_ratio: f64,
     pub color_ratio: f64,
@@ -14,7 +13,7 @@ pub struct TensorRule<C: Choice = TensorChoice> {
 impl<C: Choice> TensorRule<C> {
     pub fn new(choice: C) -> Self {
         Self {
-            choice,
+            choice: RuleBox::new(choice),
             move_ratio: 0.5,
             jump_ratio: 0.5,
             color_ratio: 1.0,
@@ -58,13 +57,27 @@ impl<C: Choice> TensorRule<C> {
 impl Default for TensorRule<TensorChoice> {
     fn default() -> Self {
         Self {
-            choice: TensorChoice::default(),
+            choice: RuleBox::new(TensorChoice::default()),
             move_ratio: 0.5,
             jump_ratio: 0.5,
             color_ratio: 1.0,
             scale: 0.2,
             jump_center: false,
             color_small: false,
+        }
+    }
+}
+
+impl<C: Choice> Clone for TensorRule<C> {
+    fn clone(&self) -> Self {
+        Self {
+            choice: self.choice.clone(),
+            move_ratio: self.move_ratio,
+            jump_ratio: self.jump_ratio,
+            color_ratio: self.color_ratio,
+            scale: self.scale,
+            jump_center: self.jump_center,
+            color_small: self.color_small,
         }
     }
 }
@@ -151,10 +164,9 @@ impl<R: Rule> Rule for TensoredRule<R> {
     }
 }
 
-#[derive(Clone)]
 pub struct TensorChoice<CBig: Choice = DefaultChoice, CSmall: Choice = DefaultChoice> {
-    choice_big: CBig,
-    choice_small: CSmall,
+    choice_big: RuleBox<CBig>,
+    choice_small: RuleBox<CSmall>,
     rng: RuleRng,
     jump_prob: f64,
     jump_any: bool
@@ -163,8 +175,8 @@ pub struct TensorChoice<CBig: Choice = DefaultChoice, CSmall: Choice = DefaultCh
 impl<CBig: Choice, CSmall: Choice> TensorChoice<CBig, CSmall> {
     pub fn new(choice_big: CBig, choice_small: CSmall, jump_prob: f64, jump_any: bool) -> Self {
         Self {
-            choice_big,
-            choice_small,
+            choice_big: RuleBox::new(choice_big),
+            choice_small: RuleBox::new(choice_small),
             rng: RuleRng::from_entropy(),
             jump_prob,
             jump_any,
@@ -175,11 +187,23 @@ impl<CBig: Choice, CSmall: Choice> TensorChoice<CBig, CSmall> {
 impl Default for TensorChoice<DefaultChoice, DefaultChoice> {
     fn default() -> Self {
         Self {
-            choice_big: DefaultChoice::default(),
-            choice_small: DefaultChoice::default(),
+            choice_big: RuleBox::new(DefaultChoice::default()),
+            choice_small: RuleBox::new(DefaultChoice::default()),
             rng: RuleRng::from_entropy(),
             jump_prob: 0.5,
             jump_any: false
+        }
+    }
+}
+
+impl<CBig: Choice, CSmall: Choice> Clone for TensorChoice<CBig, CSmall> {
+    fn clone(&self) -> Self {
+        Self {
+            choice_big: self.choice_big.clone(),
+            choice_small: self.choice_small.clone(),
+            rng: self.rng.clone(),
+            jump_prob: self.jump_prob,
+            jump_any: self.jump_any,
         }
     }
 }

@@ -47,10 +47,6 @@ fn advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runt
     let move_ratio = as_float(args.get(0), 0.5)?;
     let color_ratio = as_float(args.get(1), 0.5)?;
 
-    println!("{:?}", args);
-
-    println!("{:?} {:?}", move_ratio, color_ratio);
-
     let rule = DefaultRule::new(choice, move_ratio, color_ratio);
 
     let name = format!("DefaultRule {}", next_index());

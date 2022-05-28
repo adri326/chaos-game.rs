@@ -36,3 +36,37 @@ impl Rule for BoxedRule {
         self.0.next(previous, history, shape, scatter)
     }
 }
+
+
+pub struct BoxedChoice(Box<dyn Choice>);
+
+impl BoxedChoice {
+    pub fn new<C: Choice + 'static>(choice: C) -> BoxedChoice {
+        BoxedChoice(Box::new(choice))
+    }
+
+    pub fn as_any(&self) -> &dyn Any {
+        &self.0
+    }
+
+    pub fn downgrade<C: Choice + 'static>(&self) -> Option<&C> {
+        self.as_any()
+            .downcast_ref::<C>()
+    }
+}
+
+impl Clone for BoxedChoice {
+    fn clone(&self) -> Self {
+        Self(clone_box(self.0.as_ref()))
+    }
+}
+
+impl Choice for BoxedChoice {
+    fn choose_point(
+        &mut self,
+        history: &[usize],
+        shape: &Shape
+    ) -> usize {
+        self.0.choose_point(history, shape)
+    }
+}

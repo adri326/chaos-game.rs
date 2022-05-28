@@ -95,15 +95,14 @@ impl<R: Rule + Sized> RuleHelper for R {}
 #[cfg(feature = "box")]
 dyn_clone::clone_trait_object!(Rule);
 
-pub trait Choice: Clone + Send {
+pub trait Choice: DynClone + Send {
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize;
 }
 
 // === Rules ===
 
-#[derive(Clone)]
 pub struct DefaultRule<C: Choice = DefaultChoice> {
-    choice: C,
+    choice: RuleBox<C>,
     move_ratio: f64,
     color_ratio: f64,
 }
@@ -111,7 +110,7 @@ pub struct DefaultRule<C: Choice = DefaultChoice> {
 impl<C: Choice> DefaultRule<C> {
     pub fn new(choice: C, move_ratio: f64, color_ratio: f64) -> Self {
         Self {
-            choice,
+            choice: RuleBox::new(choice),
             move_ratio,
             color_ratio,
         }
@@ -121,9 +120,19 @@ impl<C: Choice> DefaultRule<C> {
 impl Default for DefaultRule<DefaultChoice> {
     fn default() -> Self {
         Self {
-            choice: DefaultChoice::default(),
+            choice: RuleBox::new(DefaultChoice::default()),
             move_ratio: 0.5,
             color_ratio: 1.0,
+        }
+    }
+}
+
+impl<C: Choice> Clone for DefaultRule<C> {
+    fn clone(&self) -> Self {
+        Self {
+            choice: self.choice.clone(),
+            move_ratio: self.move_ratio,
+            color_ratio: self.color_ratio
         }
     }
 }
@@ -165,21 +174,21 @@ impl<C: Choice> Rule for DefaultRule<C> {
 mod rule_box {
     use super::*;
 
-    pub struct RuleBox<R: Rule>(Box<R>);
+    pub struct RuleBox<R: DynClone>(Box<R>);
 
-    impl<R: Rule> RuleBox<R> {
+    impl<R: DynClone> RuleBox<R> {
         pub fn new(rule: R) -> Self {
             Self(Box::new(rule))
         }
     }
 
-    impl<R: Rule> Clone for RuleBox<R> {
+    impl<R: DynClone> Clone for RuleBox<R> {
         fn clone(&self) -> Self {
             Self(clone_box(self.0.as_ref()))
         }
     }
 
-    impl<R: Rule> std::ops::Deref for RuleBox<R> {
+    impl<R: DynClone> std::ops::Deref for RuleBox<R> {
         type Target = R;
 
         fn deref(&self) -> &Self::Target {
@@ -187,7 +196,7 @@ mod rule_box {
         }
     }
 
-    impl<R: Rule> std::ops::DerefMut for RuleBox<R> {
+    impl<R: DynClone> std::ops::DerefMut for RuleBox<R> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.0.as_mut()
         }
@@ -198,21 +207,21 @@ mod rule_box {
 mod rule_box {
     use super::*;
 
-    pub struct RuleBox<R: Rule>(R);
+    pub struct RuleBox<R: DynClone>(R);
 
-    impl<R: Rule> RuleBox<R> {
+    impl<R: DynClone> RuleBox<R> {
         pub fn new(rule: R) -> Self {
             Self(rule)
         }
     }
 
-    impl<R: Rule> Clone for RuleBox<R> {
+    impl<R: DynClone> Clone for RuleBox<R> {
         fn clone(&self) -> Self {
             Self(self.0.clone())
         }
     }
 
-    impl<R: Rule> std::ops::Deref for RuleBox<R> {
+    impl<R: DynClone> std::ops::Deref for RuleBox<R> {
         type Target = R;
 
         fn deref(&self) -> &Self::Target {
@@ -220,7 +229,7 @@ mod rule_box {
         }
     }
 
-    impl<R: Rule> std::ops::DerefMut for RuleBox<R> {
+    impl<R: DynClone> std::ops::DerefMut for RuleBox<R> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             &mut self.0
         }
