@@ -142,6 +142,7 @@ dependencies = [
  "rand",
  "rand_distr",
  "rand_xoshiro",
+ "rust_lisp",
  "std-semaphore",
  "winit",
  "winit_input_helper",
@@ -1314,6 +1315,15 @@ name = "renderdoc-sys"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1382d1f0a252c4bf97dc20d979a2fdd05b024acd7c2ed0f7595d7817666a157"
+
+[[package]]
+name = "rust_lisp"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd58b7b96e0db739c4a05aef7dea6acd24f13d895db83e4af0d474d81b5f8dd7"
+dependencies = [
+ "cfg-if 1.0.0",
+]
 
 [[package]]
 name = "rustc-hash"

@@ -5,14 +5,12 @@ use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::WindowBuilder;
 use winit_input_helper::WinitInputHelper;
 
-pub mod shape;
-use shape::*;
-
-pub mod world;
-use world::*;
-
-pub mod rules;
-use rules::*;
+use chaos_game::{
+    shape::*,
+    world::*,
+    rules::*,
+    lisp::*
+};
 
 // const WIDTH: u32 = 1920 * 4;
 // const HEIGHT: u32 = 1080 * 4;
@@ -21,43 +19,41 @@ const HEIGHT: u32 = 1024;
 const RESIZE: bool = true;
 const HEADLESS: bool = false;
 
-pub const BG_R: f64 = 0.001;
-pub const BG_G: f64 = 0.001;
-pub const BG_B: f64 = 0.001;
-
-pub const GAMMA: f64 = 2.2;
-
 #[allow(dead_code)]
 const PHI: f64 = 1.61803398874989484820458683436563811772030;
 
 fn main() -> Result<(), pixels::Error> {
+    let rule_raw = std::fs::read_to_string(
+        std::env::args().nth(1).unwrap_or(String::from("rule.lisp"))
+    ).unwrap();
+    let rule = eval_rule(&rule_raw).unwrap();
 
-    let rule = TensorRule::new(TensorChoice::new(
-            NeighborhoodChoice::new(2),
-            NeighborChoice::new(1),
-            0.5,
-            false
-        ))
-        .scale((PHI - 1.0) / 4.0)
-        .jump_center(true)
-        .color_small(false)
-        .move_ratio(PHI - 1.0)
-        .color_ratio(1.0 / 3.0)
-        .jump_ratio(PHI - 1.0)
-        .discrete_spiral((0.9, 0.5), std::f64::consts::PI / 7.0, 1.0 / 2.0, 0.975);
+    // let rule = TensorRule::new(TensorChoice::new(
+    //         NeighborhoodChoice::new(2),
+    //         NeighborChoice::new(1),
+    //         0.5,
+    //         false
+    //     ))
+    //     .scale((PHI - 1.0) / 4.0)
+    //     .jump_center(true)
+    //     .color_small(false)
+    //     .move_ratio(PHI - 1.0)
+    //     .color_ratio(1.0 / 3.0)
+    //     .jump_ratio(PHI - 1.0)
+    //     .discrete_spiral((0.9, 0.5), std::f64::consts::PI / 7.0, 1.0 / 2.0, 0.975);
 
-    let rule = OrRule::new(
-        rule,
-        DefaultRule::new(DefaultChoice::default(), -0.5, 0.5)
-        .tensored()
-        .spiral(
-            (0.0, 0.0),
-            (0.95, 1.05)
-        )
-        .darken(0.25),
-        0.95,
-        0.5
-    );
+    // let rule = OrRule::new(
+    //     rule,
+    //     DefaultRule::new(DefaultChoice::default(), -0.5, 0.5)
+    //     .tensored()
+    //     .spiral(
+    //         (0.0, 0.0),
+    //         (0.95, 1.05)
+    //     )
+    //     .darken(0.25),
+    //     0.95,
+    //     0.5
+    // );
 
     // let choice = AvoidTwoChoice::new(1, -1);
     // let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
