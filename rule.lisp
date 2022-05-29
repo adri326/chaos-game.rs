@@ -11,6 +11,6 @@
 
 (or-rule
     0.4
-    (advance-rule (/ 1.0 3.0) 0.5 (avoid2-choice 0 0))
-    (advance-rule (/ 3.0 3.0) 0.5 (avoid-choice 0))
+    (advance-rule 0.5 0.5 (avoid2-choice 0 0))
+    (advance-rule (/ 2.0 3.0) 0.5 (avoid-choice 0))
 )

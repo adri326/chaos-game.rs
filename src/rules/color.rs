@@ -36,4 +36,8 @@ impl<R: Rule> Rule for DarkenRule<R> {
 
         (next, index)
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rule.reseed(seed);
+    }
 }

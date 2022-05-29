@@ -25,7 +25,13 @@ pub use transform::*;
 pub mod choice;
 pub use choice::*;
 
-type RuleRng = rand_xoshiro::Xoshiro256Plus;
+type RuleInnerRng = rand_xoshiro::Xoshiro256Plus;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RuleRng {
+    pub instance_seed: [u8; 32],
+    pub rng: RuleInnerRng,
+}
 
 #[cfg(feature = "box")]
 pub trait Rule: Send + DynClone {
@@ -36,6 +42,8 @@ pub trait Rule: Send + DynClone {
         shape: &Shape,
         scatter: bool,
     ) -> (Point, usize);
+
+    fn reseed(&mut self, seed: &[u8; 32]);
 }
 
 #[cfg(not(feature = "box"))]
@@ -47,6 +55,8 @@ pub trait Rule: Sized + Send + Clone {
         shape: &Shape,
         scatter: bool,
     ) -> (Point, usize);
+
+    fn reseed(&mut self, seed: &[u8; 32]);
 }
 
 pub trait RuleHelper: Sized + Rule {
@@ -97,6 +107,66 @@ dyn_clone::clone_trait_object!(Rule);
 
 pub trait Choice: DynClone + Send {
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize;
+
+    fn reseed(&mut self, seed: &[u8; 32]);
+}
+
+impl RuleRng {
+    #[inline]
+    pub fn reseed(&mut self, seed: &[u8; 32]) {
+        for (instance_byte, seed_byte) in self.instance_seed.iter_mut().zip(seed.iter().copied()) {
+            *instance_byte ^= seed_byte;
+        }
+
+        self.rng = RuleInnerRng::from_seed(self.instance_seed.clone());
+    }
+}
+
+impl Clone for RuleRng {
+    fn clone(&self) -> Self {
+        Self {
+            instance_seed: self.instance_seed.clone(),
+            rng: RuleInnerRng::from_seed(self.instance_seed.clone())
+        }
+    }
+}
+
+impl rand::RngCore for RuleRng {
+    #[inline]
+    fn next_u32(&mut self) -> u32 {
+        self.rng.next_u32()
+    }
+
+    #[inline]
+    fn next_u64(&mut self) -> u64 {
+        self.rng.next_u64()
+    }
+
+    #[inline]
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.rng.fill_bytes(dest)
+    }
+
+    #[inline]
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand::Error> {
+        self.rng.try_fill_bytes(dest)
+    }
+}
+
+impl SeedableRng for RuleRng {
+    type Seed = <RuleInnerRng as SeedableRng>::Seed;
+
+    fn from_seed(seed: [u8; 32]) -> Self {
+        Self {
+            instance_seed: seed,
+            rng: RuleInnerRng::from_seed(seed),
+        }
+    }
+
+    fn seed_from_u64(seed: u64) -> Self {
+        let mut rng = rand_xoshiro::SplitMix64::seed_from_u64(seed);
+        Self::from_rng(&mut rng).unwrap()
+    }
 }
 
 // === Rules ===
@@ -168,6 +238,10 @@ impl<C: Choice> Rule for DefaultRule<C> {
             index,
         )
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.choice.reseed(seed);
+    }
 }
 
 #[cfg(feature = "box")]
@@ -237,3 +311,34 @@ mod rule_box {
 }
 
 pub use rule_box::RuleBox;
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_rand_reseed() {
+        // The probability that this gives a false negative is 2^(-100*64), assuming xoshiro is a good PRNG algorithm
+        for _ in 0..100 {
+            let mut rng_base = RuleRng::from_entropy();
+            let mut rng_clone = rng_base.clone();
+
+            assert!(rng_base.gen::<u64>() == rng_clone.gen::<u64>());
+
+            let mut rng_base = RuleRng::from_entropy();
+            let mut rng_reseed = rng_base.clone();
+            rng_reseed.reseed(&rand::thread_rng().gen());
+
+            assert!(rng_base.gen::<u64>() != rng_reseed.gen::<u64>());
+
+            let rng_base = RuleRng::from_entropy();
+            let mut rng_reseed = rng_base.clone();
+            let mut rng_reseed2 = rng_base.clone();
+            let seed = rand::thread_rng().gen();
+            rng_reseed.reseed(&seed);
+            rng_reseed2.reseed(&seed);
+
+            assert!(rng_reseed.gen::<u64>() == rng_reseed2.gen::<u64>());
+        }
+    }
+}

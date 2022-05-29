@@ -61,6 +61,10 @@ impl Choice for DefaultChoice {
     fn choose_point(&mut self, _history: &[usize], shape: &Shape) -> usize {
         self.rng.gen_range(0..shape.len())
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+    }
 }
 
 crate_macro::simple_choice!(AvoidChoice, diff: isize = 0);
@@ -76,6 +80,10 @@ impl Choice for AvoidChoice {
         }
 
         (history[0] + inc) % shape.len()
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
     }
 }
 
@@ -129,6 +137,10 @@ impl Choice for AvoidTwoChoice {
         let res = (current + inc) % len;
         res
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+    }
 }
 
 crate_macro::simple_choice!(NeighborChoice, dist: usize = 1);
@@ -142,6 +154,10 @@ impl Choice for NeighborChoice {
             (history[0] + shape.len() - self.dist) % shape.len()
         }
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+    }
 }
 
 crate_macro::simple_choice!(NeighborhoodChoice, max_dist: usize = 1);
@@ -151,5 +167,9 @@ impl Choice for NeighborhoodChoice {
     fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
         let choice = self.rng.gen_range(-(self.max_dist as isize)..=(self.max_dist as isize));
         (history[0] as isize + choice).rem_euclid(shape.len() as isize) as usize
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
     }
 }

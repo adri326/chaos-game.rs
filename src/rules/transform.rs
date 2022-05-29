@@ -66,6 +66,11 @@ impl<R: Rule> Rule for SpiralRule<R> {
 
         (next, index)
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+        self.rule.reseed(seed);
+    }
 }
 
 pub struct DiscreteSpiralRule<R: Rule> {
@@ -150,5 +155,10 @@ impl<R: Rule> Rule for DiscreteSpiralRule<R> {
         }
 
         (next, index)
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+        self.rule.reseed(seed);
     }
 }

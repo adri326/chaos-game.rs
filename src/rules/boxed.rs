@@ -35,6 +35,10 @@ impl Rule for BoxedRule {
     ) -> (Point, usize) {
         self.0.next(previous, history, shape, scatter)
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.0.reseed(seed);
+    }
 }
 
 
@@ -68,5 +72,9 @@ impl Choice for BoxedChoice {
         shape: &Shape
     ) -> usize {
         self.0.choose_point(history, shape)
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.0.reseed(seed);
     }
 }

@@ -328,6 +328,9 @@ impl Workers {
 
 impl<R: Rule> Worker<R> {
     pub fn run(mut self) {
+        use rand::Rng;
+
+        self.params.rule.reseed(&rand::thread_rng().gen());
         self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
         loop {
             let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));

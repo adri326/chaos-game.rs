@@ -353,7 +353,7 @@ fn extract_shape(value: &Value) -> Result<Shape, RuntimeError> {
     }
 }
 
-pub fn eval_rule(raw: &str) -> Result<(BoxedRule, Option<Shape>), RuntimeError> {
+pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>), RuntimeError> {
     let mut env = default_env();
     populate_env(&mut env);
 
@@ -386,7 +386,7 @@ pub fn eval_rule(raw: &str) -> Result<(BoxedRule, Option<Shape>), RuntimeError> 
         None
     };
 
-    Ok((rule, shape))
+    Ok((Some(rule), shape))
 }
 
 #[cfg(test)]

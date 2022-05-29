@@ -66,4 +66,10 @@ impl<Left: Rule, Right: Rule> Rule for OrRule<Left, Right> {
         }
         res
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+        self.left.reseed(seed);
+        self.right.reseed(seed);
+    }
 }

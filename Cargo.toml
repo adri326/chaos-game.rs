@@ -17,7 +17,7 @@ rand_distr = "0.4.3"
 std-semaphore = "0.1.0"
 dyn-clone = "1.0.5"
 
-rust_lisp = "0.7.2"
+rust_lisp = "0.8.0"
 
 [profile.dev]
 debug = 1

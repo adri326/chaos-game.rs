@@ -9,7 +9,7 @@ use chaos_game::{
     shape::*,
     world::*,
     rules::*,
-    lisp::*
+    script::*
 };
 
 // const WIDTH: u32 = 1920 * 4;
@@ -27,6 +27,8 @@ fn main() -> Result<(), pixels::Error> {
         std::env::args().nth(1).unwrap_or(String::from("rule.lisp"))
     ).unwrap();
     let (rule, shape) = eval_rule(&rule_raw).unwrap();
+
+    let rule = rule.unwrap_or(BoxedRule::new(DefaultRule::default()));
 
     let shape = if let Some(shape) = shape {
         shape

@@ -118,6 +118,10 @@ impl<C: Choice> Rule for TensorRule<C> {
             index,
         )
     }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.choice.reseed(seed);
+    }
 }
 
 pub struct TensoredRule<R: Rule> {
@@ -161,6 +165,10 @@ impl<R: Rule> Rule for TensoredRule<R> {
         let (next, index) = self.rule.next(previous, &history2, shape, scatter);
 
         (next, index * shape.len() + history[0] % shape.len())
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rule.reseed(seed);
     }
 }
 
@@ -230,5 +238,11 @@ impl<CBig: Choice, CSmall: Choice> Choice for TensorChoice<CBig, CSmall> {
             let choice = self.choice_small.choose_point(&history2, shape);
             len * (history[0] / len) + choice
         }
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+        self.choice_big.reseed(seed);
+        self.choice_small.reseed(seed);
     }
 }
