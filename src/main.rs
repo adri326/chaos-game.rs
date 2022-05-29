@@ -26,58 +26,22 @@ fn main() -> Result<(), pixels::Error> {
     let rule_raw = std::fs::read_to_string(
         std::env::args().nth(1).unwrap_or(String::from("rule.lisp"))
     ).unwrap();
-    let rule = eval_rule(&rule_raw).unwrap();
+    let (rule, shape) = eval_rule(&rule_raw).unwrap();
 
-    // let rule = TensorRule::new(TensorChoice::new(
-    //         NeighborhoodChoice::new(2),
-    //         NeighborChoice::new(1),
-    //         0.5,
-    //         false
-    //     ))
-    //     .scale((PHI - 1.0) / 4.0)
-    //     .jump_center(true)
-    //     .color_small(false)
-    //     .move_ratio(PHI - 1.0)
-    //     .color_ratio(1.0 / 3.0)
-    //     .jump_ratio(PHI - 1.0)
-    //     .discrete_spiral((0.9, 0.5), std::f64::consts::PI / 7.0, 1.0 / 2.0, 0.975);
-
-    // let rule = OrRule::new(
-    //     rule,
-    //     DefaultRule::new(DefaultChoice::default(), -0.5, 0.5)
-    //     .tensored()
-    //     .spiral(
-    //         (0.0, 0.0),
-    //         (0.95, 1.05)
-    //     )
-    //     .darken(0.25),
-    //     0.95,
-    //     0.5
-    // );
-
-    // let choice = AvoidTwoChoice::new(1, -1);
-    // let rule = DefaultRule::new(choice.clone(), 0.5, 1.0 / 3.0);
-    // let rule = OrRule::new(
-    //     rule,
-    //     DefaultRule::new(AvoidChoice::new(0), 1.5, 1.0 / 3.0).spiral(
-    //         (0.0, 0.05),
-    //         (1.0, 0.90),
-    //     )
-    //     .darken(0.5),
-    //     0.9,
-    //     0.4,
-    // );
-
-    let shape = polygon(
-        std::env::args()
-            .last()
-            .map(|a| a.parse::<usize>().ok())
-            .flatten()
-            .unwrap_or(3),
-    );
-    let color_a = from_srgb(160, 147, 242);
-    let color_b = from_srgb(186, 190, 220);
-    let shape = colorize(shape, color_a, color_b, 4);
+    let shape = if let Some(shape) = shape {
+        shape
+    } else {
+        let shape = polygon(
+            std::env::args()
+                .last()
+                .map(|a| a.parse::<usize>().ok())
+                .flatten()
+                .unwrap_or(3),
+        );
+        let color_a = from_srgb(160, 147, 242);
+        let color_b = from_srgb(186, 190, 220);
+        colorize(shape, color_a, color_b, 4)
+    };
 
     let params = WorldParams {
         zoom: 1.25,
