@@ -26,7 +26,7 @@ fn main() -> Result<(), pixels::Error> {
     let rule_raw = std::fs::read_to_string(
         std::env::args().nth(1).unwrap_or(String::from("rule.lisp"))
     ).unwrap();
-    let (rule, shape) = eval_rule(&rule_raw).unwrap();
+    let (rule, shape, scale) = eval_rule(&rule_raw).unwrap();
 
     let rule = rule.unwrap_or(BoxedRule::new(DefaultRule::default()));
 
@@ -45,8 +45,9 @@ fn main() -> Result<(), pixels::Error> {
         colorize(shape, color_a, color_b, 4)
     };
 
+    // TODO: rename zoom to scale
     let params = WorldParams {
-        zoom: 1.25,
+        zoom: scale.unwrap_or(1.25),
         rule: RuleBox::new(rule),
         shape,
         steps: 1_000_000,

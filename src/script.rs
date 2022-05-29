@@ -14,24 +14,29 @@ thread_local! {
     static NONCE: RefCell<usize> = RefCell::new(0);
 }
 
-fn as_number(value: Option<&Value>, default_value: f64) -> Result<f64, RuntimeError> {
+fn expect_arg(args: &Vec<Value>, argno: usize) -> Result<&Value, RuntimeError> {
+    match args.get(argno) {
+        Some(x) => Ok(x),
+        None => Err(RuntimeError::new(format!("Error: expected argument {} but only got {} args!", argno + 1, args.len()))),
+    }
+}
+
+fn as_number(value: &Value) -> Result<f64, RuntimeError> {
     Ok(match value {
-        Some(Value::Float(x)) => *x as f64,
-        Some(Value::Int(x)) => *x as f64,
-        Some(y) => return Err(RuntimeError::new(format!("Expected int or float, got {:?}", y))),
-        _ => default_value
+        Value::Float(x) => *x as f64,
+        Value::Int(x) => *x as f64,
+        y => return Err(RuntimeError::new(format!("Expected int or float, got {:?}", y))),
     })
 }
 
-fn as_symbol(value: Option<&Value>) -> Result<String, RuntimeError> {
-    value
-        .map(|x| x.as_symbol())
-        .flatten()
-        .ok_or(RuntimeError::new(format!("Expected symbol, got {:?}", value)))
+fn as_symbol(value: &Value) -> Result<String, RuntimeError> {
+    value.as_symbol().ok_or(
+        RuntimeError::new(format!("Expected symbol, got {:?}", value))
+    )
 }
 
-fn as_int(value: Option<&Value>) -> Result<i32, RuntimeError> {
-    value.map(|x| x.as_int()).flatten().ok_or(
+fn as_int(value: &Value) -> Result<i32, RuntimeError> {
+    value.as_int().ok_or(
         RuntimeError::new(format!("Expected integer, got {:?}", value))
     )
 }
@@ -108,37 +113,47 @@ fn choice(_env: Rc<RefCell<Env>>, _args: &Vec<Value>) -> Result<Value, RuntimeEr
 }
 
 fn avoid_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let diff = as_int(args.get(0))? as isize;
+    let diff = as_int(expect_arg(args, 0)?)? as isize;
 
     crate_macro::lisp_choice!(AvoidChoice, diff)
 }
 
 fn avoid2_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let diff1 = as_int(args.get(0))? as isize;
-    let diff2 = as_int(args.get(1))? as isize;
+    let diff1 = as_int(expect_arg(args, 0)?)? as isize;
+    let diff2 = as_int(expect_arg(args, 1)?)? as isize;
 
     crate_macro::lisp_choice!(AvoidTwoChoice, diff1, diff2)
 }
 
 fn neighbor_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let dist = as_int(args.get(0))?;
+    let dist = as_int(expect_arg(args, 0)?)?;
     let dist: usize = dist.try_into().ok().ok_or(RuntimeError::new(format!("Expected positive integer, got {}", dist)))?;
 
     crate_macro::lisp_choice!(NeighborChoice, dist)
 }
 
 fn neighborhood_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let dist = as_int(args.get(0))?;
+    let dist = as_int(expect_arg(args, 0)?)?;
     let dist: usize = dist.try_into().ok().ok_or(RuntimeError::new(format!("Expected positive integer, got {}", dist)))?;
 
     crate_macro::lisp_choice!(NeighborhoodChoice, dist)
 }
 
+fn tensor_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let jump_prob = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
+    let jump_any = args.get(3).unwrap_or(&Value::True).is_truthy();
+
+    let choice_big = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
+    let choice_small = get_choice(as_symbol(expect_arg(args, 1)?)?)?;
+
+    crate_macro::lisp_choice!(TensorChoice<BoxedChoice, BoxedChoice>, choice_big, choice_small, jump_prob, jump_any)
+}
+
 fn advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let move_ratio = as_number(args.get(0), 0.5)?;
-    let color_ratio = as_number(args.get(1), 0.5)?;
+    let move_ratio = as_number(args.get(0).unwrap_or(&Value::Float(0.5)))?;
+    let color_ratio = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
     let choice = match args.get(2) {
-        Some(x) => get_choice(as_symbol(Some(x))?)?,
+        Some(x) => get_choice(as_symbol(x)?)?,
         None => BoxedChoice::new(DefaultChoice::default())
     };
 
@@ -155,13 +170,13 @@ fn advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runt
 }
 
 fn spiral_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let rule = get_rule(as_symbol(args.get(0))?)?;
+    let rule = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
 
-    let delta_low = as_number(args.get(1), 0.0)?;
-    let delta_high = as_number(args.get(2), 0.0)?;
+    let delta_low = as_number(args.get(1).unwrap_or(&Value::Float(0.0)))?;
+    let delta_high = as_number(args.get(2).unwrap_or(&Value::Float(0.0)))?;
 
-    let epsilon_low = as_number(args.get(3), 1.0)?;
-    let epsilon_high = as_number(args.get(4), 1.0)?;
+    let epsilon_low = as_number(args.get(3).unwrap_or(&Value::Float(1.0)))?;
+    let epsilon_high = as_number(args.get(4).unwrap_or(&Value::Float(1.0)))?;
 
     let rule = SpiralRule::new(rule, (delta_low, delta_high), (epsilon_low, epsilon_high));
 
@@ -176,14 +191,14 @@ fn spiral_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runti
 }
 
 fn discrete_spiral_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let rule = get_rule(as_symbol(args.get(0))?)?;
+    let rule = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
 
-    let p = as_number(args.get(1), 0.5)?;
-    let p_scatter = as_number(args.get(5), p)?;
+    let p = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
+    let p_scatter = as_number(args.get(5).unwrap_or(&Value::Float(p as f32)))?;
 
-    let delta = as_number(args.get(2), 1.0)?;
-    let epsilon = as_number(args.get(3), 1.0)?;
-    let darken = as_number(args.get(4), 1.0)?;
+    let delta = as_number(args.get(2).unwrap_or(&Value::Float(0.0)))?;
+    let epsilon = as_number(args.get(3).unwrap_or(&Value::Float(1.0)))?;
+    let darken = as_number(args.get(4).unwrap_or(&Value::Float(1.0)))?;
 
     let rule = DiscreteSpiralRule::new(rule, (p, p_scatter), delta, epsilon, darken)
         .map_err(|_| RuntimeError::new(format!(
@@ -203,9 +218,9 @@ fn discrete_spiral_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Val
 }
 
 fn darken_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let rule = get_rule(as_symbol(args.get(0))?)?;
+    let rule = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
 
-    let amount = as_number(args.get(1), 1.0)?;
+    let amount = as_number(args.get(1).unwrap_or(&Value::Float(1.0)))?;
 
     let rule = DarkenRule::new(rule, amount);
 
@@ -220,15 +235,58 @@ fn darken_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runti
 }
 
 fn or_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let p = as_number(args.get(0), 0.5)?;
-    let p_scatter = as_number(args.get(3), 0.5)?;
+    let p = as_number(args.get(0).unwrap_or(&Value::Float(0.5)))?;
+    let p_scatter = as_number(args.get(3).unwrap_or(&Value::Float(0.5)))?;
 
-    let left = get_rule(as_symbol(args.get(1))?)?;
-    let right = get_rule(as_symbol(args.get(2))?)?;
+    let left = get_rule(as_symbol(expect_arg(args, 1)?)?)?;
+    let right = get_rule(as_symbol(expect_arg(args, 2)?)?)?;
 
     let rule = OrRule::new(left, right, p, p_scatter);
 
     let name = format!("OrRule {}", next_index());
+
+    RULES.with(|r| r.borrow_mut().insert(
+        name.clone(),
+        BoxedRule::new(rule)
+    ));
+
+    Ok(Value::Symbol(name))
+}
+
+fn tensor_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let choice = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
+    let move_ratio = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
+    let jump_ratio = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
+    let color_ratio = as_number(args.get(3).unwrap_or(&Value::Float(1.0)))?;
+    let scale = as_number(args.get(4).unwrap_or(&Value::Float(0.2)))?;
+    let jump_center = args.get(5).unwrap_or(&Value::False).is_truthy();
+    let color_small = args.get(6).unwrap_or(&Value::False).is_truthy();
+
+    let rule = TensorRule::new(choice)
+        .move_ratio(move_ratio)
+        .jump_ratio(jump_ratio)
+        .color_ratio(color_ratio)
+        .scale(scale)
+        .jump_center(jump_center)
+        .color_small(color_small);
+
+    let name = format!("TensorRule {}", next_index());
+
+    RULES.with(|r| r.borrow_mut().insert(
+        name.clone(),
+        BoxedRule::new(rule)
+    ));
+
+    Ok(Value::Symbol(name))
+}
+
+
+fn tensored_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let rule = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
+
+    let rule = TensoredRule::new(rule);
+
+    let name = format!("TensoredRule {}", next_index());
 
     RULES.with(|r| r.borrow_mut().insert(
         name.clone(),
@@ -289,6 +347,16 @@ fn populate_env(env: &mut Env) {
     );
 
     env.entries.insert(
+        String::from("tensor-rule"),
+        Value::NativeFunc(tensor_rule)
+    );
+
+    env.entries.insert(
+        String::from("tensored-rule"),
+        Value::NativeFunc(tensored_rule)
+    );
+
+    env.entries.insert(
         String::from("choice"),
         Value::NativeFunc(choice)
     );
@@ -311,6 +379,11 @@ fn populate_env(env: &mut Env) {
     env.entries.insert(
         String::from("neighborhood-choice"),
         Value::NativeFunc(neighborhood_choice)
+    );
+
+    env.entries.insert(
+        String::from("tensor-choice"),
+        Value::NativeFunc(tensor_choice)
     );
 }
 
@@ -353,7 +426,7 @@ fn extract_shape(value: &Value) -> Result<Shape, RuntimeError> {
     }
 }
 
-pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>), RuntimeError> {
+pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>, Option<f64>), RuntimeError> {
     let mut env = default_env();
     populate_env(&mut env);
 
@@ -365,7 +438,7 @@ pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>), Runtim
     }
 
     let evaluation_result = eval_block(env.clone(), ast.into_iter())?;
-    let rule = get_rule(as_symbol(Some(&evaluation_result))?)?;
+    let rule = get_rule(as_symbol(&evaluation_result)?)?;
 
     // Cleanup:
     RULES.with(|r| {
@@ -386,7 +459,13 @@ pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>), Runtim
         None
     };
 
-    Ok((Some(rule), shape))
+    let scale = match env.borrow().entries.get("SCALE") {
+        Some(Value::Float(x)) => Some(*x as f64),
+        Some(Value::Int(x)) => Some(*x as f64),
+        _ => None
+    };
+
+    Ok((Some(rule), shape, scale))
 }
 
 #[cfg(test)]
