@@ -1318,9 +1318,9 @@ checksum = "f1382d1f0a252c4bf97dc20d979a2fdd05b024acd7c2ed0f7595d7817666a157"
 
 [[package]]
 name = "rust_lisp"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1bbbf8bdc33ef35fede47ae5643b4f08e850164c7266d1191953fdf19855709c"
+checksum = "acde0297e949b2ba245f1da8f2e9aa4f1bfaa0d3eaae65dd857209c3ac2b8357"
 dependencies = [
  "cfg-if 1.0.0",
 ]

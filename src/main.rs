@@ -54,7 +54,7 @@ fn main() -> Result<(), pixels::Error> {
         scatter_steps: 3,
     };
 
-    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 2, 10);
+    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 16, 10);
 
     if HEADLESS {
         let (tx, rx) = std::sync::mpsc::channel();
