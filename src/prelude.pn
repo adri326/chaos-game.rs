@@ -1,0 +1,14 @@
+print = x -> magic "print" x
+
+choice = () -> magic "choice" ()
+
+advance_rule = args -> match args {
+    (amount, color_amount) -> {
+        magic "advance_rule" (amount, color_amount, choice ())
+    }
+    amount -> {
+        magic "advance_rule" (amount, 0.5, choice ())
+    }
+}
+
+set_rule = rule -> magic "set_rule" rule

@@ -138,6 +138,7 @@ dependencies = [
  "ctrlc",
  "dyn-clone",
  "image",
+ "passerine",
  "pixels",
  "rand",
  "rand_distr",
@@ -1108,6 +1109,12 @@ dependencies = [
  "smallvec",
  "winapi",
 ]
+
+[[package]]
+name = "passerine"
+version = "0.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69035089daca1e9c03cd75eea92e06ff51b76e33e940a6e8c5f3c19dfd222b44"
 
 [[package]]
 name = "percent-encoding"

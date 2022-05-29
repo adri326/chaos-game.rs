@@ -11,4 +11,4 @@ pub mod world;
 pub mod rules;
 
 #[cfg(feature = "box")]
-pub mod lisp;
+pub mod script;
