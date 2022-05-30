@@ -156,6 +156,17 @@ fn parse_int(raw: &str) -> Result<usize, std::num::ParseIntError> {
     raw.parse::<usize>().map(|x| x * mult)
 }
 
+fn parse_dim(raw: &str) -> Result<(u32, u32), String> {
+    let mut iter = raw.split("x");
+    let first = iter.next().ok_or(String::from("Expected a non-empty value"))?;
+    let second = iter.next().ok_or(String::from("Expected value in format WIDTHxHEIGHT"))?;
+
+    Ok((
+        first.parse::<u32>().map_err(|e| format!("{:?}", e))?,
+        second.parse::<u32>().map_err(|e| format!("{:?}", e))?
+    ))
+}
+
 fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
     let matches = command!()
         .arg(arg!([input] "The input script to run"))
@@ -168,7 +179,7 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
         .arg(arg!(--scale <VALUE> "The default scale factor, ignored if set by the input script").default_value("1.25").validator(|s| s.parse::<f64>()))
         .arg(arg!(--steps <VALUE> "Number of steps between an update").default_value("500000").validator(|s| parse_int(s)))
         .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that work as 'scatter' for each step").default_value("7").validator(|s| parse_int(s)))
-        .arg(arg!(--"max-steps" <VALUE> "Stop the program if max-steps is reached"))
+        .arg(arg!(--"max-steps" <VALUE> "Stop the program if max-steps is reached").required(false))
         .arg(
             arg!(--queue-length <VALUE> "Maximum number of results that can sit in the queue; decrease if the program runs out of memory, increase if the queue becomes a bottleneck")
             .default_value(&format!("{}", 2 * num_cpus::get()))
@@ -178,6 +189,11 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
             arg!(--threads <VALUE> "Number of threads; defaults to the number of CPU logical cores")
             .default_value(&format!("{}", num_cpus::get()))
             .validator(|s| parse_int(s))
+        )
+        .arg(
+            arg!(--dim <VALUE> "Dimension of the image, only valid in headless mode")
+            .default_value(&format!("{}x{}", WIDTH, HEIGHT))
+            .validator(|s| parse_dim(s))
         )
         .get_matches();
 
@@ -218,6 +234,8 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
 
     let max_steps = matches.value_of("max-steps").map(|s| parse_int(s).expect("Invalid value for max-steps"));
 
+    let (width, height) = parse_dim(matches.value_of("dim").unwrap()).unwrap();
+
     // TODO: factor out gain (0.1)
-    (World::new(WIDTH, HEIGHT, 0.1, params, n_threads, 10), headless, max_steps)
+    (World::new(width, height, 0.1, params, n_threads, 10), headless, max_steps)
 }

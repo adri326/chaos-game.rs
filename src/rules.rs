@@ -248,6 +248,7 @@ impl<C: Choice> Rule for DefaultRule<C> {
 mod rule_box {
     use super::*;
 
+    #[derive(Debug)]
     pub struct RuleBox<R: DynClone>(Box<R>);
 
     impl<R: DynClone> RuleBox<R> {
@@ -281,6 +282,7 @@ mod rule_box {
 mod rule_box {
     use super::*;
 
+    #[derive(Debug)]
     pub struct RuleBox<R: DynClone>(R);
 
     impl<R: DynClone> RuleBox<R> {

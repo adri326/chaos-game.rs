@@ -162,3 +162,96 @@ impl<R: Rule> Rule for DiscreteSpiralRule<R> {
         self.rule.reseed(seed);
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum RandAdvanceDistr {
+    SkewNormal(rand_distr::SkewNormal<f64>),
+    Uniform(rand::distributions::Uniform<f64>)
+}
+
+impl Distribution<f64> for RandAdvanceDistr {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> f64 {
+        match self {
+            Self::SkewNormal(distr) => distr.sample(rng),
+            Self::Uniform(distr) => distr.sample(rng)
+        }
+    }
+}
+
+// TODO: maybe move to another module
+#[derive(Debug)]
+pub struct RandAdvanceRule<C: Choice> {
+    choice: RuleBox<C>,
+    rng: RuleRng,
+    distribution: RandAdvanceDistr,
+    color_ratio: f64,
+}
+
+impl<C: Choice> RandAdvanceRule<C> {
+    /// Creates a new RandAdvanceRule, with either the SkewNormal or the Uniform distribution:
+    /// If omega > 0, SkewNormal(position = zeta, scale = omega, shape = alpha) is used
+    /// Otherwise, Uniform(low = zeta, high = alpha) is used
+    pub fn new(choice: C, zeta: f64, omega: f64, alpha: f64, color_ratio: f64) -> Self {
+        Self {
+            choice: RuleBox::new(choice),
+            rng: RuleRng::from_entropy(),
+            distribution: if omega > 0.0 {
+                RandAdvanceDistr::SkewNormal(rand_distr::SkewNormal::new(zeta, omega, alpha).unwrap())
+            } else {
+                RandAdvanceDistr::Uniform(rand::distributions::Uniform::new(zeta, alpha))
+            },
+            color_ratio
+        }
+    }
+}
+
+impl<C: Choice> Clone for RandAdvanceRule<C> {
+    fn clone(&self) -> Self {
+        Self {
+            choice: self.choice.clone(),
+            rng: self.rng.clone(),
+            distribution: self.distribution.clone(),
+            color_ratio: self.color_ratio
+        }
+    }
+}
+
+impl<C: Choice> Rule for RandAdvanceRule<C> {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        _scatter: bool,
+    ) -> (Point, usize) {
+        let index = self.choice.choose_point(history, shape);
+        let point = shape[index];
+        let dx = point.x - previous.x;
+        let dy = point.y - previous.y;
+
+        let dr = point.r - previous.r;
+        let dg = point.g - previous.g;
+        let db = point.b - previous.b;
+
+        let move_ratio = self.rng.sample(&self.distribution);
+
+        (
+            Point::new(
+                previous.x + dx * move_ratio,
+                previous.y + dy * move_ratio,
+                // point.color()
+                (
+                    previous.r + dr * self.color_ratio,
+                    previous.g + dg * self.color_ratio,
+                    previous.b + db * self.color_ratio,
+                ),
+            ),
+            index,
+        )
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.choice.reseed(seed);
+        self.rng.reseed(seed);
+    }
+}

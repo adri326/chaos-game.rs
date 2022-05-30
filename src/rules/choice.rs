@@ -173,3 +173,69 @@ impl Choice for NeighborhoodChoice {
         self.rng.reseed(seed);
     }
 }
+
+/// One of the most generic choice functions: `∀ (j, k), ℙ(Xᵢ₊₁ = k | Xᵢ = j) = Mⱼₖ`
+#[derive(Clone, Debug)]
+pub struct MatrixChoice {
+    rng: RuleRng,
+    n_points: usize,
+    matrix: Vec<f64>,
+}
+
+impl MatrixChoice {
+    pub fn new(n_points: usize, mut matrix: Vec<f64>) -> Option<Self> {
+        if matrix.len() != n_points * n_points && matrix.len() != n_points {
+            return None
+        }
+
+        for y in 0..(matrix.len() / n_points) {
+            let mut sum = 0.0;
+            for x in 0..n_points {
+                sum += matrix[x + y * n_points];
+                matrix[x + y * n_points] = sum;
+            }
+        }
+
+        let matrix = if matrix.len() == n_points {
+            let mut new_matrix = Vec::with_capacity(n_points * n_points);
+            for _y in 0..n_points {
+                new_matrix.extend_from_slice(&matrix);
+            }
+            new_matrix
+        } else {
+            matrix
+        };
+
+        Some(Self {
+            rng: RuleRng::from_entropy(),
+            n_points,
+            matrix
+        })
+    }
+}
+
+impl Choice for MatrixChoice {
+    #[inline]
+    fn choose_point(&mut self, history: &[usize], shape: &Shape) -> usize {
+        let last = history[0];
+        let max = self.matrix[(last + 1) * self.n_points - 1];
+        if max == 0.0 {
+            return last;
+        }
+
+        let num = self.rng.gen_range(0.0..max);
+
+        // TODO: binary search
+        for x in 0..self.n_points.min(shape.len()) {
+            if self.matrix[x + last * self.n_points] >= num {
+                return x;
+            }
+        }
+
+        return last;
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.rng.reseed(seed);
+    }
+}

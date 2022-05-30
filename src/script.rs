@@ -149,13 +149,37 @@ fn tensor_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Run
     crate_macro::lisp_choice!(TensorChoice<BoxedChoice, BoxedChoice>, choice_big, choice_small, jump_prob, jump_any)
 }
 
+fn matrix_choice(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let n_points: usize = as_int(expect_arg(args, 0)?)?.try_into().map_err(|e| RuntimeError::new(format!("{:?}", e)))?;
+    let mut matrix = Vec::with_capacity(n_points * n_points);
+    let matrix_raw = expect_arg(args, 1)?.as_list().ok_or(RuntimeError::new(
+        format!("Expected list, got {}", args[1])
+    ))?;
+    for x in matrix_raw.into_iter() {
+        matrix.push(as_number(&x)?);
+    }
+
+    let len = matrix.len();
+    let choice = MatrixChoice::new(n_points, matrix).ok_or(RuntimeError::new(
+        format!("Invalid matrix length, expected {} or {}, got {}", n_points, n_points * n_points, len)
+    ))?;
+    let name = format!("MatrixChoice {}", next_index());
+
+    CHOICES.with(|c| c.borrow_mut().insert(
+        name.clone(),
+        BoxedChoice::new(choice)
+    ));
+
+    Ok(Value::Symbol(name))
+}
+
 fn advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let move_ratio = as_number(args.get(0).unwrap_or(&Value::Float(0.5)))?;
-    let color_ratio = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
-    let choice = match args.get(2) {
+    let choice = match args.get(0) {
         Some(x) => get_choice(as_symbol(x)?)?,
         None => BoxedChoice::new(DefaultChoice::default())
     };
+    let move_ratio = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
+    let color_ratio = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
 
     let rule = DefaultRule::new(choice, move_ratio, color_ratio);
 
@@ -280,7 +304,6 @@ fn tensor_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runti
     Ok(Value::Symbol(name))
 }
 
-
 fn tensored_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
     let rule = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
 
@@ -296,10 +319,31 @@ fn tensored_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Run
     Ok(Value::Symbol(name))
 }
 
+fn rand_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let choice = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
+    let zeta = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
+    let omega = as_number(args.get(2).unwrap_or(&Value::Float(0.01)))?;
+    let alpha = as_number(args.get(3).unwrap_or(&Value::Float(0.0)))?;
+    let color_ratio = as_number(args.get(4).unwrap_or(&Value::Float(0.5)))?;
+
+    let rule = RandAdvanceRule::new(choice, zeta, omega, alpha, color_ratio);
+
+    let name = format!("RandAdvanceRule {}", next_index());
+
+    RULES.with(|r| r.borrow_mut().insert(
+        name.clone(),
+        BoxedRule::new(rule)
+    ));
+
+    Ok(Value::Symbol(name))
+}
+
 fn float(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
     match args.get(0) {
         Some(Value::Float(x)) => Ok(Value::Float(*x)),
         Some(Value::Int(x)) => Ok(Value::Float(*x as f32)),
+        Some(Value::True) => Ok(Value::Float(1.0)),
+        Some(Value::False) => Ok(Value::Float(0.0)),
         Some(Value::String(x)) => Ok(Value::Float(x.parse::<f32>().map_err(|e| RuntimeError::new(format!("{:?}", e)))?)),
         Some(y) => Err(RuntimeError::new(format!("Invalid argument for 'float': {:?}", y))),
         None => Err(RuntimeError::new("'float' should have 1 parameter!"))
@@ -378,6 +422,11 @@ fn populate_env(env: &mut Env) {
     );
 
     env.entries.insert(
+        String::from("rand-advance-rule"),
+        Value::NativeFunc(rand_advance_rule)
+    );
+
+    env.entries.insert(
         String::from("choice"),
         Value::NativeFunc(choice)
     );
@@ -400,6 +449,11 @@ fn populate_env(env: &mut Env) {
     env.entries.insert(
         String::from("neighborhood-choice"),
         Value::NativeFunc(neighborhood_choice)
+    );
+
+    env.entries.insert(
+        String::from("matrix-choice"),
+        Value::NativeFunc(matrix_choice)
     );
 
     env.entries.insert(
