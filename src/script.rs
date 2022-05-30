@@ -306,11 +306,32 @@ fn float(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeErro
     }
 }
 
+fn modulo(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let (left, right) = (expect_arg(args, 0)?, expect_arg(args, 1)?);
+
+    match (left, right) {
+        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x % y)),
+        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x % (*y as f32))),
+        (Value::Int(x), Value::Float(y)) => Ok(Value::Float((*x as f32) % y)),
+        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x % y)),
+        _ => Err(RuntimeError::new(format!("Invalid arguments for '%'; expected ints or floats, got {:?} {:?}", left, right)))
+    }
+}
+
+fn pow(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let (left, right) = (as_number(expect_arg(args, 0)?)?, as_number(expect_arg(args, 1)?)?);
+
+    Ok(Value::Float((left as f32).powf(right as f32)))
+}
+
 fn populate_env(env: &mut Env) {
     env.entries.insert(
         String::from("float"),
         Value::NativeFunc(float)
     );
+
+    env.entries.insert(String::from("%"), Value::NativeFunc(modulo));
+    env.entries.insert(String::from("pow"), Value::NativeFunc(pow));
 
     crate_macro::lisp_mathfun!(env, sqrt);
     crate_macro::lisp_mathfun!(env, exp);

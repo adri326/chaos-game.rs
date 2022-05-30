@@ -138,6 +138,7 @@ dependencies = [
  "ctrlc",
  "dyn-clone",
  "image",
+ "num_cpus",
  "pixels",
  "rand",
  "rand_distr",

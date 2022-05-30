@@ -17,7 +17,6 @@ use chaos_game::{
 const WIDTH: u32 = 1024;
 const HEIGHT: u32 = 1024;
 const RESIZE: bool = true;
-const HEADLESS: bool = false;
 
 #[allow(dead_code)]
 const PHI: f64 = 1.61803398874989484820458683436563811772030;
@@ -33,16 +32,9 @@ fn main() -> Result<(), pixels::Error> {
     let shape = if let Some(shape) = shape {
         shape
     } else {
-        let shape = polygon(
-            std::env::args()
-                .last()
-                .map(|a| a.parse::<usize>().ok())
-                .flatten()
-                .unwrap_or(3),
-        );
         let color_a = from_srgb(160, 147, 242);
         let color_b = from_srgb(186, 190, 220);
-        colorize(shape, color_a, color_b, 4)
+        colorize(polygon(3), color_a, color_b, 4)
     };
 
     // TODO: rename zoom to scale
@@ -54,15 +46,16 @@ fn main() -> Result<(), pixels::Error> {
         scatter_steps: 3,
     };
 
-    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, 16, 10);
+    let n_threads = num_cpus::get() as usize;
+    let mut world = World::new(WIDTH, HEIGHT, 0.1, params, n_threads, 10);
 
-    if HEADLESS {
+    if std::env::args().any(|a| a == "--headless") {
         let (tx, rx) = std::sync::mpsc::channel();
 
         ctrlc::set_handler(move || tx.send(()).expect("Couldn't notify the main thread of ctrl-c")).expect("Error listening for ctrl-c");
 
         loop {
-            world.update();
+            world.update(true);
             if let Ok(_) = rx.try_recv() {
                 break
             }
@@ -119,7 +112,7 @@ fn main() -> Result<(), pixels::Error> {
             if input.update(&event) {
                 if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
                     world.stop();
-                    world.update();
+                    world.update(false);
                     println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
                     *control_flow = ControlFlow::Exit;
 
@@ -145,7 +138,7 @@ fn main() -> Result<(), pixels::Error> {
                     }
                 }
 
-                world.update();
+                world.update(false);
                 world.draw(pixels.get_frame());
                 if pixels
                     .render()

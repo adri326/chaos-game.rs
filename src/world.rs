@@ -170,8 +170,8 @@ impl<R: Rule + 'static> World<R> {
             .start(self.params.clone(), self.width, self.height);
     }
 
-    pub fn update(&mut self) {
-        self.total_steps += self.workers.recv();
+    pub fn update(&mut self, blocking: bool) {
+        self.total_steps += self.workers.recv(blocking);
     }
 
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
@@ -311,8 +311,19 @@ impl Workers {
         self.pixels = vec![Pixel::default(); width * height];
     }
 
-    pub fn recv(&mut self) -> usize {
+    pub fn recv(&mut self, blocking: bool) -> usize {
+        use std::time::Duration;
         let mut total_steps = 0;
+
+        if blocking {
+            if let Ok((pixels, steps)) = self.receiver.recv_timeout(Duration::new(0, 1_000_000)) {
+                total_steps += steps;
+                for (from, to) in pixels.into_iter().zip(self.pixels.iter_mut()) {
+                    to.add_pixel(from);
+                }
+                self.queue_sem.release();
+            }
+        }
 
         while let Ok((pixels, steps)) = self.receiver.try_recv() {
             total_steps += steps;
