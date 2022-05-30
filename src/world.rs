@@ -325,12 +325,17 @@ impl Workers {
             }
         }
 
+        let mut count = 0;
         while let Ok((pixels, steps)) = self.receiver.try_recv() {
+            count += 1;
             total_steps += steps;
             for (from, to) in pixels.into_iter().zip(self.pixels.iter_mut()) {
                 to.add_pixel(from);
             }
             self.queue_sem.release();
+            if count > self.queue_length {
+                break
+            }
         }
 
         total_steps
