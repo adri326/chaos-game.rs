@@ -257,77 +257,48 @@ impl<C: Choice> Rule for RandAdvanceRule<C> {
 }
 
 #[derive(Debug)]
-pub struct AdvanceTwoRule<C1: Choice, C2: Choice> {
-    choices: (RuleBox<C1>, RuleBox<C2>),
-    move_ratio: (f64, f64),
-    color_ratio: f64,
-    skew: f64,
+pub struct MergeRule<R1: Rule, R2: Rule> {
+    rules: (RuleBox<R1>, RuleBox<R2>),
+    ratio: f64,
 }
 
-impl<C1: Choice, C2: Choice> AdvanceTwoRule<C1, C2> {
-    pub fn new(choice1: C1, choice2: C2, move_ratio1: f64, move_ratio2: f64, color_ratio: f64, skew: f64) -> Self {
+impl<R1: Rule, R2: Rule> MergeRule<R1, R2> {
+    pub fn new(rule1: R1, rule2: R2, ratio: f64) -> Self {
         Self {
-            choices: (RuleBox::new(choice1), RuleBox::new(choice2)),
-            move_ratio: (move_ratio1, move_ratio2),
-            color_ratio,
-            skew
+            rules: (RuleBox::new(rule1), RuleBox::new(rule2)),
+            ratio
         }
     }
-
-    #[inline]
-    fn advance(&self, previous: Point, next: Point, amount: f64) -> Point {
-        let dx = next.x - previous.x;
-        let dy = next.y - previous.y;
-
-        let dr = next.r - previous.r;
-        let dg = next.g - previous.g;
-        let db = next.b - previous.b;
-
-        Point::new(
-            previous.x + dx * amount,
-            previous.y + dy * amount,
-            (
-                previous.r + dr * self.color_ratio,
-                previous.g + dg * self.color_ratio,
-                previous.b + db * self.color_ratio,
-            ),
-        )
-    }
 }
 
-impl<C1: Choice, C2: Choice> Clone for AdvanceTwoRule<C1, C2> {
+impl<R1: Rule, R2: Rule> Clone for MergeRule<R1, R2> {
     fn clone(&self) -> Self {
         Self {
-            choices: self.choices.clone(),
-            move_ratio: self.move_ratio,
-            color_ratio: self.color_ratio,
-            skew: self.skew
+            rules: self.rules.clone(),
+            ratio: self.ratio
         }
     }
 }
 
-impl<C1: Choice, C2: Choice> Rule for AdvanceTwoRule<C1, C2> {
+impl<R1: Rule, R2: Rule> Rule for MergeRule<R1, R2> {
     fn next(
         &mut self,
         previous: Point,
         history: &[usize],
         shape: &Shape,
-        _scatter: bool,
+        scatter: bool,
     ) -> (Point, usize) {
-        let index1 = self.choices.0.choose_point(history, shape);
-        let point1 = self.advance(previous, shape[index1], self.move_ratio.0);
-
-        let index2 = self.choices.1.choose_point(history, shape);
-        let point2 = self.advance(previous, shape[index2], self.move_ratio.1);
+        let (point1, index1) = self.rules.0.next(previous, history, shape, scatter);
+        let (point2, _index2) = self.rules.1.next(previous, history, shape, scatter);
 
         (
             Point::new(
-                point1.x * (1.0 - self.skew) + point2.x * self.skew,
-                point1.y * (1.0 - self.skew) + point2.y * self.skew,
+                point1.x * (1.0 - self.ratio) + point2.x * self.ratio,
+                point1.y * (1.0 - self.ratio) + point2.y * self.ratio,
                 (
-                    point1.r * (1.0 - self.skew) + point2.r * self.skew,
-                    point1.g * (1.0 - self.skew) + point2.g * self.skew,
-                    point1.b * (1.0 - self.skew) + point2.b * self.skew,
+                    point1.r * (1.0 - self.ratio) + point2.r * self.ratio,
+                    point1.g * (1.0 - self.ratio) + point2.g * self.ratio,
+                    point1.b * (1.0 - self.ratio) + point2.b * self.ratio,
                 )
             ),
             index1,
@@ -335,7 +306,7 @@ impl<C1: Choice, C2: Choice> Rule for AdvanceTwoRule<C1, C2> {
     }
 
     fn reseed(&mut self, seed: &[u8; 32]) {
-        self.choices.0.reseed(seed);
-        self.choices.1.reseed(seed);
+        self.rules.0.reseed(seed);
+        self.rules.1.reseed(seed);
     }
 }

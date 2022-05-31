@@ -338,17 +338,14 @@ fn rand_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value,
     Ok(Value::Symbol(name))
 }
 
-fn advance2_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
-    let choice1 = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
-    let move_ratio1 = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
-    let choice2 = get_choice(as_symbol(expect_arg(args, 2)?)?)?;
-    let move_ratio2 = as_number(args.get(3).unwrap_or(&Value::Float(0.5)))?;
-    let color_ratio = as_number(args.get(4).unwrap_or(&Value::Float(0.5)))?;
-    let skew = as_number(args.get(5).unwrap_or(&Value::Float(0.5)))?;
+fn merge_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let left = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
+    let right = get_rule(as_symbol(expect_arg(args, 1)?)?)?;
+    let ratio = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
 
-    let rule = AdvanceTwoRule::new(choice1, choice2, move_ratio1, move_ratio2, color_ratio, skew);
+    let rule = MergeRule::new(left, right, ratio);
 
-    let name = format!("AdvanceTwoRule {}", next_index());
+    let name = format!("MergeRule {}", next_index());
 
     RULES.with(|r| r.borrow_mut().insert(
         name.clone(),
@@ -447,8 +444,8 @@ fn populate_env(env: &mut Env) {
     );
 
     env.entries.insert(
-        String::from("advance2-rule"),
-        Value::NativeFunc(advance2_rule)
+        String::from("merge-rule"),
+        Value::NativeFunc(merge_rule)
     );
 
     env.entries.insert(
