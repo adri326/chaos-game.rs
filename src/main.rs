@@ -201,7 +201,7 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
     let script = std::fs::read_to_string(
         matches.value_of("input").unwrap_or("rule.lisp")
     ).unwrap();
-    let (rule, shape, scale) = eval_rule(&script).unwrap();
+    let (rule, shape, scale, center) = eval_rule(&script).unwrap();
 
     // Extract rule
     let rule = rule.unwrap_or(BoxedRule::new(DefaultRule::default()));
@@ -219,9 +219,13 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
     // Extract scale
     let scale = scale.unwrap_or(matches.value_of("scale").unwrap().parse::<f64>().unwrap());
 
+    // Extract center
+    let center = center.unwrap_or((0.0, 0.0));
+
     // TODO: rename zoom to scale
     let params = WorldParams {
         zoom: scale,
+        center,
         rule: RuleBox::new(rule),
         shape,
         steps: parse_int(matches.value_of("steps").unwrap()).unwrap(),

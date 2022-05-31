@@ -83,6 +83,7 @@ impl Pixel {
 
 pub struct WorldParams<R: Rule> {
     pub zoom: f64,
+    pub center: (f64, f64),
     pub rule: RuleBox<R>,
     pub steps: usize,
     pub scatter_steps: usize,
@@ -398,8 +399,8 @@ impl<R: Rule> Worker<R> {
         let cx = self.width as f64 / 2.0;
         let cy = self.height as f64 / 2.0;
 
-        let x = (x * self.ratio + cx).floor();
-        let y = (y * self.ratio + cy).floor();
+        let x = ((x - self.params.center.0) * self.ratio + cx).floor();
+        let y = ((y - self.params.center.1) * self.ratio + cy).floor();
 
         if x < 0.0 || y < 0.0 {
             return None;
@@ -426,6 +427,7 @@ impl<R: Rule> Clone for WorldParams<R> {
     fn clone(&self) -> Self {
         Self {
             zoom: self.zoom,
+            center: self.center,
             rule: self.rule.clone(),
             steps: self.steps,
             scatter_steps: self.scatter_steps,

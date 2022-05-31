@@ -319,7 +319,7 @@ fn tensored_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Run
     Ok(Value::Symbol(name))
 }
 
-fn rand_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+fn random_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
     let choice = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
     let zeta = as_number(args.get(1).unwrap_or(&Value::Float(0.5)))?;
     let omega = as_number(args.get(2).unwrap_or(&Value::Float(0.01)))?;
@@ -346,6 +346,34 @@ fn merge_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, Runtim
     let rule = MergeRule::new(left, right, ratio);
 
     let name = format!("MergeRule {}", next_index());
+
+    RULES.with(|r| r.borrow_mut().insert(
+        name.clone(),
+        BoxedRule::new(rule)
+    ));
+
+    Ok(Value::Symbol(name))
+}
+
+fn affine_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
+    let choice = get_choice(as_symbol(expect_arg(args, 0)?)?)?;
+    let list = expect_arg(args, 1)?.as_list().ok_or(RuntimeError::new(
+        format!("Expected list for affine rule, got {:?}", args[1])
+    ))?;
+    let color_ratio = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
+
+    let mut matrix = Vec::with_capacity(8);
+    for x in list.into_iter() {
+        matrix.push(as_number(&x)?);
+    }
+
+    if matrix.len() != 8 {
+        return Err(RuntimeError::new(format!("Expected `matrix` to be of length 8, got {}", matrix.len())));
+    }
+
+    let rule = AffineAdvanceRule::new(choice, &matrix.try_into().unwrap(), color_ratio);
+
+    let name = format!("AffineAdvanceRule {}", next_index());
 
     RULES.with(|r| r.borrow_mut().insert(
         name.clone(),
@@ -439,8 +467,13 @@ fn populate_env(env: &mut Env) {
     );
 
     env.entries.insert(
-        String::from("rand-advance-rule"),
-        Value::NativeFunc(rand_advance_rule)
+        String::from("random-advance-rule"),
+        Value::NativeFunc(random_advance_rule)
+    );
+
+    env.entries.insert(
+        String::from("affine-advance-rule"),
+        Value::NativeFunc(affine_advance_rule)
     );
 
     env.entries.insert(
@@ -523,11 +556,24 @@ fn extract_shape(value: &Value) -> Result<Shape, RuntimeError> {
     }
 }
 
-pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>, Option<f64>), RuntimeError> {
+fn eval_prelude(env: Rc<RefCell<Env>>) -> Result<(), RuntimeError> {
+    let mut ast = Vec::new();
+
+    for item in parse(include_str!("prelude.lisp")) {
+        ast.push(item.map_err(|e| RuntimeError::new(e.msg))?);
+    }
+    eval_block(env.clone(), ast.into_iter())?;
+
+    Ok(())
+}
+
+pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>, Option<f64>, Option<(f64, f64)>), RuntimeError> {
     let mut env = default_env();
     populate_env(&mut env);
 
     let env = Rc::new(RefCell::new(env));
+
+    eval_prelude(env.clone())?;
 
     let mut ast = Vec::new();
     for item in parse(raw) {
@@ -562,7 +608,21 @@ pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>, Option<
         _ => None
     };
 
-    Ok((Some(rule), shape, scale))
+    let center = match env.borrow().entries.get("OFFSET") {
+        Some(Value::List(l)) => {
+            let mut iter = l.into_iter();
+            match (
+                iter.next().map(|x| as_number(&x).ok()).flatten(),
+                iter.next().map(|y| as_number(&y).ok()).flatten()
+            ) {
+                (Some(x), Some(y)) => Some((x, y)),
+                _ => None
+            }
+        }
+        _ => None
+    };
+
+    Ok((Some(rule), shape, scale, center))
 }
 
 #[cfg(test)]

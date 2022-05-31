@@ -310,3 +310,74 @@ impl<R1: Rule, R2: Rule> Rule for MergeRule<R1, R2> {
         self.rules.1.reseed(seed);
     }
 }
+
+/// ```no_exec
+/// f(x, y) = [ a  b ] [x] + [ e  f ] [ px ]
+///           [ c  d ] [y]   [ g  h ] [ py ]
+/// ```
+#[derive(Debug)]
+pub struct AffineAdvanceRule<C: Choice> {
+    choice: RuleBox<C>,
+    matrix: [f64; 8], // (a, b, c, d, e, f, g, h)
+    color_ratio: f64
+}
+
+impl<C: Choice> AffineAdvanceRule<C> {
+    pub fn new(choice: C, matrix: &[f64; 8], color_ratio: f64) -> Self {
+        Self {
+            choice: RuleBox::new(choice),
+            matrix: matrix.clone(),
+            color_ratio
+        }
+    }
+}
+
+impl<C: Choice> Clone for AffineAdvanceRule<C> {
+    fn clone(&self) -> Self {
+        Self {
+            choice: self.choice.clone(),
+            matrix: self.matrix.clone(),
+            color_ratio: self.color_ratio
+        }
+    }
+}
+
+impl<C: Choice> Rule for AffineAdvanceRule<C> {
+    fn next(
+        &mut self,
+        previous: Point,
+        history: &[usize],
+        shape: &Shape,
+        _scatter: bool,
+    ) -> (Point, usize) {
+        let index = self.choice.choose_point(history, shape);
+        let point = shape[index];
+
+        let (x, y) = (
+            self.matrix[0] * previous.x + self.matrix[1] * previous.y,
+            self.matrix[2] * previous.x + self.matrix[3] * previous.y,
+        );
+
+        let (x, y) = (
+            x + self.matrix[4] * point.x + self.matrix[5] * point.y,
+            y + self.matrix[6] * point.x + self.matrix[7] * point.y,
+        );
+
+        let dr = point.r - previous.r;
+        let dg = point.g - previous.g;
+        let db = point.b - previous.b;
+
+        (
+            Point::new(x, y, (
+                previous.r + dr * self.color_ratio,
+                previous.g + dg * self.color_ratio,
+                previous.b + db * self.color_ratio,
+            )),
+            index
+        )
+    }
+
+    fn reseed(&mut self, seed: &[u8; 32]) {
+        self.choice.reseed(seed);
+    }
+}
