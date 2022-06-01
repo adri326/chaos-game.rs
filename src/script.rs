@@ -608,7 +608,7 @@ pub fn eval_rule(raw: &str) -> Result<(Option<BoxedRule>, Option<Shape>, Option<
         _ => None
     };
 
-    let center = match env.borrow().entries.get("OFFSET") {
+    let center = match env.borrow().entries.get("CENTER") {
         Some(Value::List(l)) => {
             let mut iter = l.into_iter();
             match (

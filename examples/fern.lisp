@@ -1,7 +1,7 @@
 ;; This is an implementation of the Barnsley Fern
 
 (define SCALE 4.0)
-(define OFFSET (list 0.0 -5.0))
+(define CENTER (list 0.0 -5.0))
 
 (define SHAPE (colorize (list
         '(0 0)
