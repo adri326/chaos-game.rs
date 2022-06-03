@@ -7,6 +7,7 @@ use winit::{
     window::WindowBuilder
 };
 use winit_input_helper::WinitInputHelper;
+use std::time::Duration;
 
 use chaos_game::{
     shape::*,
@@ -38,7 +39,7 @@ fn main_headless<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize
     ctrlc::set_handler(move || tx.send(()).expect("Couldn't notify the main thread of ctrl-c")).expect("Error listening for ctrl-c");
 
     loop {
-        world.update(true);
+        world.update();
         if let Ok(_) = rx.try_recv() {
             break
         }
@@ -47,6 +48,7 @@ fn main_headless<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize
                 break
             }
         }
+        // std::thread::sleep(Duration::new(0, 10_000_000));
     }
 
     world.stop();
@@ -104,7 +106,6 @@ fn main_interactive<R: Rule + 'static>(mut world: World<R>, max_steps: Option<us
                 || max_steps.map(|m| world.steps() >= m).unwrap_or(false)
             {
                 world.stop();
-                world.update(false);
                 println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
                 *control_flow = ControlFlow::Exit;
 
@@ -130,7 +131,7 @@ fn main_interactive<R: Rule + 'static>(mut world: World<R>, max_steps: Option<us
                 }
             }
 
-            world.update(false);
+            world.update();
             world.draw(pixels.get_frame());
             if pixels
                 .render()
@@ -173,25 +174,29 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
         .arg(arg!(--headless "Whether to run in headless mode").required(false))
         .arg(
             arg!(--polygon <VALUE> "Number of sides that the default shape polygon will have, ignored if set by the input script")
+            .required(false)
             .default_value("3")
             .validator(|s| s.parse::<usize>())
         )
-        .arg(arg!(--scale <VALUE> "The default scale factor, ignored if set by the input script").default_value("1.25").validator(|s| s.parse::<f64>()))
-        .arg(arg!(--steps <VALUE> "Number of steps between an update").default_value("500000").validator(|s| parse_int(s)))
-        .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that work as 'scatter' for each step").default_value("7").validator(|s| parse_int(s)))
+        .arg(arg!(--scale <VALUE> "The default scale factor, ignored if set by the input script").required(false).default_value("1.25").validator(|s| s.parse::<f64>()))
+        .arg(arg!(--steps <VALUE> "Number of steps between an update").required(false).default_value("100000").validator(|s| parse_int(s)))
+        .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that work as 'scatter' for each step").required(false).default_value("3").validator(|s| parse_int(s)))
         .arg(arg!(--"max-steps" <VALUE> "Stop the program if max-steps is reached").required(false))
         .arg(
-            arg!(--queue-length <VALUE> "Maximum number of results that can sit in the queue; decrease if the program runs out of memory, increase if the queue becomes a bottleneck")
+            arg!(--"queue-length" <VALUE> "Maximum number of results that can sit in the queue; decrease if the program runs out of memory, increase if the queue becomes a bottleneck")
+            .required(false)
             .default_value(&format!("{}", 2 * num_cpus::get()))
             .validator(|s| parse_int(s))
         )
         .arg(
             arg!(--threads <VALUE> "Number of threads; defaults to the number of CPU logical cores")
+            .required(false)
             .default_value(&format!("{}", num_cpus::get()))
             .validator(|s| parse_int(s))
         )
         .arg(
             arg!(--dim <VALUE> "Dimension of the image, only valid in headless mode")
+            .required(false)
             .default_value(&format!("{}x{}", WIDTH, HEIGHT))
             .validator(|s| parse_dim(s))
         )

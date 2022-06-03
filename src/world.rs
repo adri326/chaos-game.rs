@@ -1,10 +1,8 @@
 use super::rules::*;
 use super::shape::*;
 use super::*;
-use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread::{self, JoinHandle};
-use std::sync::Arc;
-use std_semaphore::Semaphore;
+use std::sync::mpsc::{TrySendError, Receiver, TryRecvError};
+use worker_pool::{DownMsg, WorkerPool, WorkerSender};
 
 #[derive(Clone)]
 pub struct Pixel {
@@ -94,31 +92,25 @@ pub struct World<R: Rule> {
     pub gain: f64,
     width: usize,
     height: usize,
-    total_steps: usize,
 
     pub params: WorldParams<R>,
-    workers: Workers,
+    workers: WorkerPool<State, ()>,
+    n_threads: usize,
+    pub state: State,
 }
 
-struct Workers {
-    pixels: Vec<Pixel>,
-    receiver: Receiver<(Vec<Pixel>, usize)>,
-    transmit: Sender<(Vec<Pixel>, usize)>,
-    threads: Vec<(JoinHandle<()>, Sender<()>)>,
-    n_threads: usize,
-    queue_sem: Arc<Semaphore>,
-    queue_length: isize,
+pub struct State {
+    pub pixels: Vec<Pixel>,
+    pub steps: usize
 }
 
 struct Worker<R: Rule + 'static> {
-    rx: Receiver<()>,
-    tx: Sender<(Vec<Pixel>, usize)>,
-    tx_sem: Arc<Semaphore>,
     pixels: Vec<Pixel>,
 
     width: usize,
     height: usize,
     ratio: f64,
+    steps: usize,
 
     params: WorldParams<R>,
 }
@@ -130,22 +122,25 @@ impl<R: Rule + 'static> World<R> {
         gain: f64,
         params: WorldParams<R>,
         n_threads: usize,
-        queue_length: isize
+        queue_length: usize
     ) -> Self {
         let width = width as usize;
         let height = height as usize;
 
-        let workers = Workers::new(params.clone(), width, height, n_threads, queue_length);
-
-        Self {
+        let mut res = Self {
             width,
             height,
             gain,
-            total_steps: 0,
 
             params,
-            workers,
-        }
+            workers: WorkerPool::new(queue_length),
+            n_threads,
+            state: State::new(vec![Pixel::default(); width * height], 0),
+        };
+
+        res.spawn_threads();
+
+        res
     }
 
     pub fn width(&self) -> u32 {
@@ -157,22 +152,44 @@ impl<R: Rule + 'static> World<R> {
     }
 
     pub fn stop(&mut self) {
-        self.workers.stop();
+        for msg in self.workers.stop() {
+            self.state.combine(msg);
+        }
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width as usize;
         self.height = height as usize;
-        self.total_steps = 0;
 
-        // self.pixels = vec![Pixel::default(); self.width * self.height];
-        self.workers.stop();
-        self.workers
-            .start(self.params.clone(), self.width, self.height);
+        self.state.reset(self.width, self.height);
+
+        for _ in self.workers.stop() {}
+        self.spawn_threads();
     }
 
-    pub fn update(&mut self, blocking: bool) {
-        self.total_steps += self.workers.recv(blocking);
+    fn spawn_threads(&mut self) {
+        let params = self.params.clone();
+        let pixels = vec![Pixel::default(); self.width * self.height];
+        let width = self.width;
+        let height = self.height;
+        self.workers.execute_many(self.n_threads, move |tx, rx| {
+            let worker = Worker {
+                pixels,
+                width,
+                height,
+                params,
+                steps: 0,
+                ratio: 0.0,
+            };
+
+            worker.run(tx, rx);
+        });
+    }
+
+    pub fn update(&mut self) {
+        for msg in self.workers.recv_burst() {
+            self.state.combine(msg);
+        }
     }
 
     /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
@@ -190,7 +207,7 @@ impl<R: Rule + 'static> World<R> {
                 break;
             }
 
-            let p = &self.workers.pixels[i];
+            let p = &self.state.pixels[i];
             let a = 1.0 - (p.n * ratio).neg().exp();
             let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
             let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
@@ -211,154 +228,47 @@ impl<R: Rule + 'static> World<R> {
     }
 
     pub fn steps(&self) -> usize {
-        self.total_steps
+        self.state.steps
     }
 
     pub fn mse(&self) -> f64 {
         if cfg!(feature = "sigma") {
             let mut res = 0.0;
 
-            for pixel in self.workers.pixels.iter() {
+            for pixel in self.state.pixels.iter() {
                 res += pixel.error_squared();
             }
 
-            res / self.workers.pixels.len() as f64
+            res / self.state.pixels.len() as f64
         } else {
             0.0
         }
     }
 }
 
-impl Workers {
-    pub fn new<R: Rule + 'static>(
-        params: WorldParams<R>,
-        width: usize,
-        height: usize,
-        n_threads: usize,
-        queue_length: isize,
-    ) -> Self {
-        let (main_tx, main_rx) = mpsc::channel();
-
-        let mut res = Self {
-            pixels: vec![Pixel::default(); width * height],
-            receiver: main_rx,
-            transmit: main_tx,
-            threads: Vec::with_capacity(n_threads),
-            n_threads,
-            queue_sem: Arc::new(Semaphore::new(queue_length)),
-            queue_length
-        };
-
-        res.start(params, width, height);
-
-        res
-    }
-
-    pub fn stop(&mut self) {
-        let threads = std::mem::replace(&mut self.threads, Vec::with_capacity(self.n_threads));
-
-        for worker in threads.iter() {
-            (worker.1).send(()).expect("Error while stopping worker!");
-        }
-
-        // Note: prevent deadlock by allowing every thread to get past the semaphore condition
-        while let Ok(x) = self.receiver.try_recv() {
-            std::mem::drop(x);
-            self.queue_sem.release();
-        }
-
-        for worker in threads.into_iter() {
-            (worker.0)
-                .join()
-                .expect("Error while waiting for worker to stop!");
-        }
-
-        let (main_tx, main_rx) = mpsc::channel();
-        self.receiver = main_rx;
-        self.transmit = main_tx;
-        self.queue_sem = Arc::new(Semaphore::new(self.queue_length));
-    }
-
-    pub fn start<R: Rule + 'static>(
-        &mut self,
-        params: WorldParams<R>,
-        width: usize,
-        height: usize,
-    ) {
-
-        for _n in 0..self.n_threads {
-            let params = params.clone();
-            let (thread_tx, thread_rx) = mpsc::channel();
-            let main_tx = self.transmit.clone();
-            let tx_sem = Arc::clone(&self.queue_sem);
-
-            let handle = thread::spawn(move || {
-                let worker = Worker {
-                    rx: thread_rx,
-                    tx: main_tx,
-                    tx_sem,
-                    pixels: vec![Pixel::default(); width * height],
-                    width,
-                    height,
-                    params,
-                    ratio: 0.0,
-                };
-
-                worker.run();
-            });
-            self.threads.push((handle, thread_tx));
-        }
-
-        self.pixels = vec![Pixel::default(); width * height];
-    }
-
-    pub fn recv(&mut self, blocking: bool) -> usize {
-        use std::time::Duration;
-        let mut total_steps = 0;
-
-        if blocking {
-            if let Ok((pixels, steps)) = self.receiver.recv_timeout(Duration::new(0, 1_000_000)) {
-                total_steps += steps;
-                for (from, to) in pixels.into_iter().zip(self.pixels.iter_mut()) {
-                    to.add_pixel(from);
-                }
-                self.queue_sem.release();
-            }
-        }
-
-        let mut count = 0;
-        while let Ok((pixels, steps)) = self.receiver.try_recv() {
-            count += 1;
-            total_steps += steps;
-            for (from, to) in pixels.into_iter().zip(self.pixels.iter_mut()) {
-                to.add_pixel(from);
-            }
-            self.queue_sem.release();
-            if count > self.queue_length {
-                break
-            }
-        }
-
-        total_steps
-    }
-}
-
 impl<R: Rule> Worker<R> {
-    pub fn run(mut self) {
+    pub fn run(mut self, tx: WorkerSender<State>, rx: Receiver<DownMsg<()>>) {
         use rand::Rng;
 
         self.params.rule.reseed(&rand::thread_rng().gen());
         self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
+
+        let mut first_iteration = true;
+
         loop {
+            let _ = worker_pool::try_recv_break!(rx);
+
             let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
             let mut history = vec![0; 4];
 
-            for n in 0..self.params.steps {
-                if n % 1000 == 0 {
-                    if let Ok(()) = self.rx.try_recv() {
-                        return;
-                    }
-                }
+            let n_steps = if first_iteration {
+                first_iteration = false;
+                (self.params.steps / 10).max(1)
+            } else {
+                self.params.steps
+            };
+
+            for _n in 0..n_steps {
                 for _nscatter in 0..self.params.scatter_steps {
                     let (new_point, _) =
                         self.params
@@ -379,19 +289,19 @@ impl<R: Rule> Worker<R> {
                 point = new_point;
             }
 
-            let steps = self.params.steps * (1 + self.params.scatter_steps);
+            self.steps += self.params.steps * (1 + self.params.scatter_steps);
 
-            self.tx_sem.acquire();
-            self.tx
-                .send((self.pixels, steps))
-                .expect("Error while transmitting results from worker thread!");
-
-            if let Ok(()) = self.rx.try_recv() {
-                return;
+            match tx.try_send(State::new(self.pixels, self.steps)) {
+                Ok(_) => {
+                    self.pixels = vec![Pixel::default(); self.width * self.height];
+                    self.steps = 0;
+                }
+                Err(TrySendError::Full(msg)) => self.pixels = msg.pixels,
+                Err(TrySendError::Disconnected(_)) => panic!("Manager disconnected!"),
             }
-
-            self.pixels = vec![Pixel::default(); self.width * self.height];
         }
+
+        tx.send(State::new(self.pixels, self.steps)).unwrap();
     }
 
     #[inline]
@@ -433,5 +343,32 @@ impl<R: Rule> Clone for WorldParams<R> {
             scatter_steps: self.scatter_steps,
             shape: self.shape.clone()
         }
+    }
+}
+
+impl State {
+    pub fn new(pixels: Vec<Pixel>, steps: usize) -> Self {
+        Self {
+            pixels,
+            steps
+        }
+    }
+
+    pub fn combine(&mut self, other: State) {
+        self.steps += other.steps;
+        for (from, to) in other.pixels.into_iter().zip(self.pixels.iter_mut()) {
+            to.add_pixel(from);
+        }
+    }
+
+    pub fn reset(&mut self, width: usize, height: usize) {
+        if width * height == self.pixels.len() {
+            for p in self.pixels.iter_mut() {
+                *p = Pixel::default();
+            }
+        } else {
+            self.pixels = vec![Pixel::default(); width * height];
+        }
+        self.steps = 0;
     }
 }

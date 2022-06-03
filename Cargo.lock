@@ -159,6 +159,7 @@ dependencies = [
  "std-semaphore",
  "winit",
  "winit_input_helper",
+ "worker-pool",
 ]
 
 [[package]]
@@ -1915,6 +1916,12 @@ checksum = "353281ce305e2d720d6af2ad9343abf9ed47c41b5f2aa011f83f41970179b414"
 dependencies = [
  "winit",
 ]
+
+[[package]]
+name = "worker-pool"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "342329c446726bd497aef9ac6ddf9400db9ffc758ace7005534aed6084da1574"
 
 [[package]]
 name = "x11-dl"
