@@ -631,6 +631,6 @@ mod test {
 
     #[test]
     fn test_parse() {
-        assert!(eval_rule("(or-rule 0.5 (advance-rule 0.25) (advance-rule 0.5))").is_ok());
+        assert!(eval_rule("(or-rule 0.5 (advance-rule (choice) 0.25) (advance-rule (choice) 0.5))").is_ok());
     }
 }

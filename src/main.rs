@@ -48,7 +48,7 @@ fn main_headless<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize
                 break
             }
         }
-        // std::thread::sleep(Duration::new(0, 10_000_000));
+        std::thread::sleep(Duration::new(0, 10_000_000));
     }
 
     world.stop();
@@ -179,13 +179,12 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
             .validator(|s| s.parse::<usize>())
         )
         .arg(arg!(--scale <VALUE> "The default scale factor, ignored if set by the input script").required(false).default_value("1.25").validator(|s| s.parse::<f64>()))
-        .arg(arg!(--steps <VALUE> "Number of steps between an update").required(false).default_value("100000").validator(|s| parse_int(s)))
-        .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that work as 'scatter' for each step").required(false).default_value("3").validator(|s| parse_int(s)))
+        .arg(arg!(--steps <VALUE> "Number of steps between an update, defaults to 100k in normal mode and 10M in headless mode").required(false).validator(|s| parse_int(s)))
+        .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that will act as 'scatter' for each step, defaults to 3 in normal mode and 7 in headless mode").required(false).validator(|s| parse_int(s)))
         .arg(arg!(--"max-steps" <VALUE> "Stop the program if max-steps is reached").required(false))
         .arg(
-            arg!(--"queue-length" <VALUE> "Maximum number of results that can sit in the queue; decrease if the program runs out of memory, increase if the queue becomes a bottleneck")
+            arg!(--"queue-length" <VALUE> "Maximum number of results that can sit in the queue; decrease if the program runs out of memory, increase if the queue becomes a bottleneck. Defaults to 2*num_cpus in normal mode and num_cpus in headless mode")
             .required(false)
-            .default_value(&format!("{}", 2 * num_cpus::get()))
             .validator(|s| parse_int(s))
         )
         .arg(
@@ -199,6 +198,12 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
             .required(false)
             .default_value(&format!("{}x{}", WIDTH, HEIGHT))
             .validator(|s| parse_dim(s))
+        )
+        .arg(
+            arg!(--burnin <VALUE> "Number of steps part of the burn-in process, reduces the bias of low step counts")
+            .required(false)
+            .default_value("100")
+            .validator(|s| s.parse::<usize>())
         )
         .get_matches();
 
@@ -227,24 +232,43 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
     // Extract center
     let center = center.unwrap_or((0.0, 0.0));
 
+    let headless = matches.occurrences_of("headless") > 0;
+
+    let steps = parse_int(matches.value_of("steps").unwrap_or(if headless {
+        "10000000"
+    } else {
+        "100000"
+    })).unwrap();
+
+    let scatter_steps = parse_int(matches.value_of("scatter-steps").unwrap_or(if headless {
+        "7"
+    } else {
+        "3"
+    })).unwrap();
+
     // TODO: rename zoom to scale
     let params = WorldParams {
         zoom: scale,
         center,
         rule: RuleBox::new(rule),
         shape,
-        steps: parse_int(matches.value_of("steps").unwrap()).unwrap(),
-        scatter_steps: parse_int(matches.value_of("scatter-steps").unwrap()).unwrap(),
+        steps,
+        scatter_steps,
+        burnin_steps: matches.value_of("burnin").unwrap().parse::<usize>().unwrap()
     };
 
     let n_threads = parse_int(matches.value_of("threads").unwrap()).unwrap();
-
-    let headless = matches.occurrences_of("headless") > 0;
 
     let max_steps = matches.value_of("max-steps").map(|s| parse_int(s).expect("Invalid value for max-steps"));
 
     let (width, height) = parse_dim(matches.value_of("dim").unwrap()).unwrap();
 
+    let queue_length = matches.value_of("queue-length").map(|x| x.parse::<usize>().unwrap()).unwrap_or(if headless {
+        num_cpus::get()
+    } else {
+        2 * num_cpus::get()
+    });
+
     // TODO: factor out gain (0.1)
-    (World::new(width, height, 0.1, params, n_threads, 10), headless, max_steps)
+    (World::new(width, height, 0.1, params, n_threads, queue_length), headless, max_steps)
 }

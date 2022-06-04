@@ -1,7 +1,7 @@
 use super::rules::*;
 use super::shape::*;
 use super::*;
-use std::sync::mpsc::{TrySendError, Receiver, TryRecvError};
+use std::sync::mpsc::{TrySendError, Receiver};
 use worker_pool::{DownMsg, WorkerPool, WorkerSender};
 
 #[derive(Clone)]
@@ -85,6 +85,7 @@ pub struct WorldParams<R: Rule> {
     pub rule: RuleBox<R>,
     pub steps: usize,
     pub scatter_steps: usize,
+    pub burnin_steps: usize,
     pub shape: Shape,
 }
 
@@ -268,6 +269,15 @@ impl<R: Rule> Worker<R> {
                 self.params.steps
             };
 
+            for _n in 0..self.params.burnin_steps {
+                let (new_point, new_index) = self.params.rule.next(point, &history, &self.params.shape, false);
+
+                point = new_point;
+
+                history.rotate_right(1);
+                history[0] = new_index;
+            }
+
             for _n in 0..n_steps {
                 for _nscatter in 0..self.params.scatter_steps {
                     let (new_point, _) =
@@ -341,6 +351,7 @@ impl<R: Rule> Clone for WorldParams<R> {
             rule: self.rule.clone(),
             steps: self.steps,
             scatter_steps: self.scatter_steps,
+            burnin_steps: self.burnin_steps,
             shape: self.shape.clone()
         }
     }
