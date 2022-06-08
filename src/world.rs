@@ -354,6 +354,7 @@ impl<R: Rule> Worker<R> {
                         self.height = height;
                         self.steps = 0;
                         self.pixels = vec![Pixel::default(); width * height];
+                        self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
                         first_iteration = true;
                     }
                 }
