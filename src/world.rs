@@ -88,19 +88,26 @@ pub struct WorldParams<R: Rule> {
     pub scatter_steps: usize,
     pub burnin_steps: usize,
     pub shape: Shape,
+    pub gain: f64,
 }
 
 pub struct World {
-    pub gain: f64,
     width: usize,
     height: usize,
 
-    pub state: Arc<Mutex<State>>,
+    pub state: Arc<Mutex<Image>>,
     manager: WorkerPool<(), ManagerMsg>,
 }
 
 pub struct State {
     pub pixels: Vec<Pixel>,
+    pub steps: usize,
+    pub width: usize,
+    pub height: usize
+}
+
+pub struct Image {
+    pub pixels: Vec<u8>,
     pub steps: usize,
     pub width: usize,
     pub height: usize
@@ -114,7 +121,8 @@ enum ManagerMsg {
 // Acts as a middle-man between World and Worker; takes all the data sent by the workers and puts it into result_buffer
 struct Manager<R: Rule> {
     state: State,
-    result_buffer: Arc<Mutex<State>>,
+    tmp_buffer: Image,
+    result_buffer: Arc<Mutex<Image>>,
 
     params: WorldParams<R>,
     workers: WorkerPool<State, ManagerMsg>,
@@ -136,7 +144,6 @@ impl World {
     pub fn new<R: Rule + 'static>(
         width: u32,
         height: u32,
-        gain: f64,
         params: WorldParams<R>,
         n_threads: usize,
         queue_length: usize
@@ -145,7 +152,7 @@ impl World {
         let height = height as usize;
 
         let result_buffer = Arc::new(Mutex::new(
-            State::empty(width, height)
+            Image::empty(width, height)
         ));
         let mut manager = WorkerPool::new(1);
 
@@ -157,6 +164,7 @@ impl World {
                     workers: WorkerPool::new(queue_length),
                     n_threads,
                     state: State::empty(width, height),
+                    tmp_buffer: Image::empty(width, height),
                     result_buffer
                 };
 
@@ -167,7 +175,6 @@ impl World {
         Self {
             width,
             height,
-            gain,
 
             manager,
             state: result_buffer
@@ -190,78 +197,32 @@ impl World {
         self.width = width as usize;
         self.height = height as usize;
 
-        self.state.lock().unwrap().reset(self.width, self.height);
-
         self.manager.broadcast(DownMsg::Other(ManagerMsg::Resize(self.width, self.height)));
     }
 
-
-    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
     pub fn draw(&self, frame: &mut [u8]) {
-        use std::ops::Neg;
-
-        let state = self.state.lock().unwrap();
-
-        let bg_r = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
-        let bg_g = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
-        let bg_b = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
-
-        // Nothing to draw, simply fill the buffer with the background color
-        if state.steps == 0 || state.pixels.len() * 4 != frame.len() {
-            for pixel in frame.chunks_exact_mut(4) {
-                pixel[0] = bg_r;
-                pixel[1] = bg_g;
-                pixel[2] = bg_b;
-                pixel[3] = 255;
-            }
-            return;
-        }
-
-        let ratio = self.width as f64 * self.height as f64 / state.steps as f64 * self.gain;
-
-        // Draw all the pixels
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            if i > self.width * self.height {
-                break;
-            }
-
-            let p = state.pixels[i];
-            let a = 1.0 - (p.n * ratio).neg().exp();
-            let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let b = ((p.b_sum / p.n * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-
-            if p.n > 0.0 {
-                pixel[0] = r;
-                pixel[1] = g;
-                pixel[2] = b;
-                pixel[3] = 255;
+        if let Ok(state) = self.state.lock() {
+            if state.width == self.width && state.height == self.height && frame.len() == state.pixels.len() {
+                for (target, src) in frame.iter_mut().zip(state.pixels.iter()) {
+                    *target = *src;
+                }
             } else {
-                pixel[0] = bg_r;
-                pixel[1] = bg_g;
-                pixel[2] = bg_b;
-                pixel[3] = 255;
+                let bg_r = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
+                let bg_g = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
+                let bg_b = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
+
+                for pixel in frame.chunks_exact_mut(4) {
+                    pixel[0] = bg_r;
+                    pixel[1] = bg_g;
+                    pixel[2] = bg_b;
+                    pixel[3] = 255;
+                }
             }
         }
     }
 
     pub fn steps(&self) -> usize {
         self.state.lock().unwrap().steps
-    }
-
-    pub fn mse(&self) -> f64 {
-        if cfg!(feature = "sigma") {
-            let mut res = 0.0;
-            let state = self.state.lock().unwrap();
-
-            for pixel in state.pixels.iter() {
-                res += pixel.error_squared();
-            }
-
-            res / state.pixels.len() as f64
-        } else {
-            0.0
-        }
     }
 }
 
@@ -281,7 +242,7 @@ impl<R: Rule + 'static> Manager<R> {
         }
 
         self.stop();
-        *self.result_buffer.lock().unwrap() = self.state;
+        self.draw();
     }
 
     fn stop(&mut self) {
@@ -298,14 +259,17 @@ impl<R: Rule + 'static> Manager<R> {
         }
 
         if received_msg {
-            if let Ok(mut result_buffer) = self.result_buffer.lock() {
-                if result_buffer.width == self.state.width && result_buffer.height == self.state.height {
-                    result_buffer.steps = self.state.steps;
-                    for (target, src) in result_buffer.pixels.iter_mut().zip(self.state.pixels.iter()) {
-                        *target = src.clone();
-                    }
-                }
-            }
+            self.draw();
+        }
+    }
+
+    fn draw(&mut self) {
+        debug_assert!(self.tmp_buffer.width == self.state.width && self.tmp_buffer.height == self.state.height);
+        self.state.draw(&mut self.tmp_buffer.pixels, self.params.gain);
+        self.tmp_buffer.steps = self.state.steps;
+
+        if let Ok(mut result_buffer) = self.result_buffer.lock() {
+            std::mem::swap(&mut *result_buffer, &mut self.tmp_buffer);
         }
     }
 
@@ -313,6 +277,9 @@ impl<R: Rule + 'static> Manager<R> {
         self.state.reset(width, height);
 
         self.workers.broadcast(DownMsg::Other(ManagerMsg::Resize(width, height)));
+
+        self.tmp_buffer = Image::empty(width, height);
+        *self.result_buffer.lock().unwrap() = Image::empty(width, height);
         // for _ in self.workers.stop() {}
         // self.spawn_threads();
     }
@@ -453,7 +420,8 @@ impl<R: Rule> Clone for WorldParams<R> {
             steps: self.steps,
             scatter_steps: self.scatter_steps,
             burnin_steps: self.burnin_steps,
-            shape: self.shape.clone()
+            shape: self.shape.clone(),
+            gain: self.gain,
         }
     }
 }
@@ -501,5 +469,90 @@ impl State {
         self.width = width;
         self.height = height;
         self.steps = 0;
+    }
+
+    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
+    pub fn draw(&self, frame: &mut [u8], gain: f64) {
+        use std::ops::Neg;
+
+        let bg_r = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_g = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_b = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
+
+        // Nothing to draw, simply fill the buffer with the background color
+        if self.steps == 0 || self.pixels.len() * 4 != frame.len() {
+            for pixel in frame.chunks_exact_mut(4) {
+                pixel[0] = bg_r;
+                pixel[1] = bg_g;
+                pixel[2] = bg_b;
+                pixel[3] = 255;
+            }
+            return;
+        }
+
+        let ratio = self.width as f64 * self.height as f64 / self.steps as f64 * gain;
+
+        // Draw all the pixels
+        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
+            if i > self.width * self.height {
+                break;
+            }
+
+            let p = self.pixels[i];
+            let a = 1.0 - (p.n * ratio).neg().exp();
+            let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let b = ((p.b_sum / p.n * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+
+            if p.n > 0.0 {
+                pixel[0] = r;
+                pixel[1] = g;
+                pixel[2] = b;
+                pixel[3] = 255;
+            } else {
+                pixel[0] = bg_r;
+                pixel[1] = bg_g;
+                pixel[2] = bg_b;
+                pixel[3] = 255;
+            }
+        }
+    }
+
+    pub fn mse(&self) -> f64 {
+        if cfg!(feature = "sigma") {
+            let mut res = 0.0;
+
+            for pixel in self.pixels.iter() {
+                res += pixel.error_squared();
+            }
+
+            res / self.pixels.len() as f64
+        } else {
+            0.0
+        }
+    }
+}
+
+impl Image {
+    pub fn empty(width: usize, height: usize) -> Self {
+        let bg_r = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_g = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_b = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
+
+        let mut res = vec![0u8; width * height * 4];
+
+        for pixel in res.chunks_exact_mut(4) {
+            pixel[0] = bg_r;
+            pixel[1] = bg_g;
+            pixel[2] = bg_b;
+            pixel[3] = 255;
+        }
+
+        Self {
+            pixels: res,
+            steps: 0,
+            width,
+            height
+        }
     }
 }

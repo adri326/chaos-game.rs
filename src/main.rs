@@ -52,7 +52,7 @@ fn main_headless(mut world: World, max_steps: Option<usize>) {
     }
 
     world.stop();
-    println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
+    println!("{} iterations", world.steps());
 
     let mut buffer = vec![0; world.width() as usize * world.height() as usize * 4];
     world.draw(&mut buffer);
@@ -108,7 +108,7 @@ fn main_interactive(mut world: World, max_steps: Option<usize>) -> Result<(), pi
                 || max_steps.map(|m| world.steps() >= m).unwrap_or(false)
             {
                 world.stop();
-                println!("{} iterations, MSE: {:.8}", world.steps(), world.mse());
+                println!("{} iterations", world.steps());
                 *control_flow = ControlFlow::Exit;
 
                 let mut buffer = vec![0; world.width() as usize * world.height() as usize * 4];
@@ -256,7 +256,8 @@ fn handle_args() -> (World, bool, Option<usize>) {
         shape,
         steps,
         scatter_steps,
-        burnin_steps: matches.value_of("burnin").unwrap().parse::<usize>().unwrap()
+        burnin_steps: matches.value_of("burnin").unwrap().parse::<usize>().unwrap(),
+        gain: 0.1, // TODO: add parameter
     };
 
     let n_threads = parse_int(matches.value_of("threads").unwrap()).unwrap();
@@ -271,6 +272,5 @@ fn handle_args() -> (World, bool, Option<usize>) {
         2 * num_cpus::get()
     });
 
-    // TODO: factor out gain (0.1)
-    (World::new(width, height, 0.1, params, n_threads, queue_length), headless, max_steps)
+    (World::new(width, height, params, n_threads, queue_length), headless, max_steps)
 }
