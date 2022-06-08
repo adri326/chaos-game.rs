@@ -233,7 +233,10 @@ impl<R: Rule + 'static> Manager<R> {
         loop {
             if let Some(msg) = worker_pool::try_recv_break!(rx) {
                 match msg {
-                    ManagerMsg::Resize(width, height) => self.resize(width, height)
+                    ManagerMsg::Resize(width, height) => {
+                        self.resize(width, height);
+                        continue;
+                    }
                 }
             }
 
@@ -323,6 +326,7 @@ impl<R: Rule> Worker<R> {
                         self.pixels = vec![Pixel::default(); width * height];
                         self.ratio = self.width.min(self.height) as f64 / self.params.zoom / 2.0;
                         first_iteration = true;
+                        continue;
                     }
                 }
             }
