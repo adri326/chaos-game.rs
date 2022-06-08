@@ -259,14 +259,14 @@ impl<C: Choice> Rule for RandAdvanceRule<C> {
 #[derive(Debug)]
 pub struct MergeRule<R1: Rule, R2: Rule> {
     rules: (RuleBox<R1>, RuleBox<R2>),
-    ratio: f64,
+    ratio: (f64, f64),
 }
 
 impl<R1: Rule, R2: Rule> MergeRule<R1, R2> {
-    pub fn new(rule1: R1, rule2: R2, ratio: f64) -> Self {
+    pub fn new(rule1: R1, rule2: R2, ratio1: f64, ratio2: f64) -> Self {
         Self {
             rules: (RuleBox::new(rule1), RuleBox::new(rule2)),
-            ratio
+            ratio: (ratio1, ratio2)
         }
     }
 }
@@ -291,14 +291,16 @@ impl<R1: Rule, R2: Rule> Rule for MergeRule<R1, R2> {
         let (point1, index1) = self.rules.0.next(previous, history, shape, scatter);
         let (point2, _index2) = self.rules.1.next(previous, history, shape, scatter);
 
+        let color_ratio = self.ratio.0 / (self.ratio.0 + self.ratio.1);
+
         (
             Point::new(
-                point1.x * (1.0 - self.ratio) + point2.x * self.ratio,
-                point1.y * (1.0 - self.ratio) + point2.y * self.ratio,
+                point1.x * self.ratio.0 + point2.x * self.ratio.1,
+                point1.y * self.ratio.0 + point2.y * self.ratio.1,
                 (
-                    point1.r * (1.0 - self.ratio) + point2.r * self.ratio,
-                    point1.g * (1.0 - self.ratio) + point2.g * self.ratio,
-                    point1.b * (1.0 - self.ratio) + point2.b * self.ratio,
+                    point1.r * color_ratio + point2.r * (1.0 - color_ratio),
+                    point1.g * color_ratio + point2.g * (1.0 - color_ratio),
+                    point1.b * color_ratio + point2.b * (1.0 - color_ratio),
                 )
             ),
             index1,

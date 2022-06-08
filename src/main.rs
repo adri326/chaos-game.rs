@@ -33,13 +33,13 @@ fn main() -> Result<(), pixels::Error> {
     }
 }
 
-fn main_headless<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize>) {
+fn main_headless(mut world: World, max_steps: Option<usize>) {
     let (tx, rx) = std::sync::mpsc::channel();
 
     ctrlc::set_handler(move || tx.send(()).expect("Couldn't notify the main thread of ctrl-c")).expect("Error listening for ctrl-c");
 
     loop {
-        world.update();
+        // world.update();
         if let Ok(_) = rx.try_recv() {
             break
         }
@@ -66,7 +66,7 @@ fn main_headless<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize
     .expect("Couldn't save result to disk!");
 }
 
-fn main_interactive<R: Rule + 'static>(mut world: World<R>, max_steps: Option<usize>) -> Result<(), pixels::Error> {
+fn main_interactive(mut world: World, max_steps: Option<usize>) -> Result<(), pixels::Error> {
     let event_loop = EventLoop::new();
     let mut input = WinitInputHelper::new();
     let window = {
@@ -84,6 +84,8 @@ fn main_interactive<R: Rule + 'static>(mut world: World<R>, max_steps: Option<us
         let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
         Pixels::new(WIDTH, HEIGHT, surface_texture)?
     };
+
+    // TODO: pixels.set_clear_color
 
     event_loop.run(move |event, _, control_flow| {
         if let Event::RedrawRequested(_) = event {
@@ -131,8 +133,8 @@ fn main_interactive<R: Rule + 'static>(mut world: World<R>, max_steps: Option<us
                 }
             }
 
-            world.update();
             world.draw(pixels.get_frame());
+
             if pixels
                 .render()
                 .map_err(|e| eprintln!("pixels.render() failed: {}", e))
@@ -168,7 +170,7 @@ fn parse_dim(raw: &str) -> Result<(u32, u32), String> {
     ))
 }
 
-fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
+fn handle_args() -> (World, bool, Option<usize>) {
     let matches = command!()
         .arg(arg!([input] "The input script to run"))
         .arg(arg!(--headless "Whether to run in headless mode").required(false))
@@ -179,7 +181,7 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
             .validator(|s| s.parse::<usize>())
         )
         .arg(arg!(--scale <VALUE> "The default scale factor, ignored if set by the input script").required(false).default_value("1.25").validator(|s| s.parse::<f64>()))
-        .arg(arg!(--steps <VALUE> "Number of steps between an update, defaults to 100k in normal mode and 10M in headless mode").required(false).validator(|s| parse_int(s)))
+        .arg(arg!(--steps <VALUE> "Number of steps between an update, defaults to 25k in normal mode and 10M in headless mode").required(false).validator(|s| parse_int(s)))
         .arg(arg!(--"scatter-steps" <VALUE> "Number of substeps that will act as 'scatter' for each step, defaults to 3 in normal mode and 7 in headless mode").required(false).validator(|s| parse_int(s)))
         .arg(arg!(--"max-steps" <VALUE> "Stop the program if max-steps is reached").required(false))
         .arg(
@@ -237,7 +239,7 @@ fn handle_args() -> (World<BoxedRule>, bool, Option<usize>) {
     let steps = parse_int(matches.value_of("steps").unwrap_or(if headless {
         "10000000"
     } else {
-        "100000"
+        "25000"
     })).unwrap();
 
     let scatter_steps = parse_int(matches.value_of("scatter-steps").unwrap_or(if headless {

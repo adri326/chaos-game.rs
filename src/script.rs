@@ -340,10 +340,11 @@ fn random_advance_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Valu
 
 fn merge_rule(_env: Rc<RefCell<Env>>, args: &Vec<Value>) -> Result<Value, RuntimeError> {
     let left = get_rule(as_symbol(expect_arg(args, 0)?)?)?;
-    let right = get_rule(as_symbol(expect_arg(args, 1)?)?)?;
-    let ratio = as_number(args.get(2).unwrap_or(&Value::Float(0.5)))?;
+    let ratio_left = as_number(expect_arg(args, 1)?)?;
+    let right = get_rule(as_symbol(expect_arg(args, 2)?)?)?;
+    let ratio_right = as_number(args.get(3).unwrap_or(&Value::Float(1.0 - ratio_left as f32)))?;
 
-    let rule = MergeRule::new(left, right, ratio);
+    let rule = MergeRule::new(left, right, ratio_left, ratio_right);
 
     let name = format!("MergeRule {}", next_index());
 

@@ -2,9 +2,10 @@ use super::rules::*;
 use super::shape::*;
 use super::*;
 use std::sync::mpsc::{TrySendError, Receiver};
+use std::sync::{Arc, Mutex};
 use worker_pool::{DownMsg, WorkerPool, WorkerSender};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct Pixel {
     pub r_sum: f64,
     pub g_sum: f64,
@@ -89,20 +90,35 @@ pub struct WorldParams<R: Rule> {
     pub shape: Shape,
 }
 
-pub struct World<R: Rule> {
+pub struct World {
     pub gain: f64,
     width: usize,
     height: usize,
 
-    pub params: WorldParams<R>,
-    workers: WorkerPool<State, ()>,
-    n_threads: usize,
-    pub state: State,
+    pub state: Arc<Mutex<State>>,
+    manager: WorkerPool<(), ManagerMsg>,
 }
 
 pub struct State {
     pub pixels: Vec<Pixel>,
-    pub steps: usize
+    pub steps: usize,
+    pub width: usize,
+    pub height: usize
+}
+
+#[derive(Clone, Debug)]
+enum ManagerMsg {
+    Resize(usize, usize),
+}
+
+// Acts as a middle-man between World and Worker; takes all the data sent by the workers and puts it into result_buffer
+struct Manager<R: Rule> {
+    state: State,
+    result_buffer: Arc<Mutex<State>>,
+
+    params: WorldParams<R>,
+    workers: WorkerPool<State, ManagerMsg>,
+    n_threads: usize,
 }
 
 struct Worker<R: Rule + 'static> {
@@ -116,8 +132,8 @@ struct Worker<R: Rule + 'static> {
     params: WorldParams<R>,
 }
 
-impl<R: Rule + 'static> World<R> {
-    pub fn new(
+impl World {
+    pub fn new<R: Rule + 'static>(
         width: u32,
         height: u32,
         gain: f64,
@@ -128,20 +144,34 @@ impl<R: Rule + 'static> World<R> {
         let width = width as usize;
         let height = height as usize;
 
-        let mut res = Self {
+        let result_buffer = Arc::new(Mutex::new(
+            State::empty(width, height)
+        ));
+        let mut manager = WorkerPool::new(1);
+
+        {
+            let result_buffer = Arc::clone(&result_buffer);
+            manager.execute(move |tx, rx| {
+                let instance = Manager {
+                    params,
+                    workers: WorkerPool::new(queue_length),
+                    n_threads,
+                    state: State::empty(width, height),
+                    result_buffer
+                };
+
+                instance.run(tx, rx);
+            });
+        }
+
+        Self {
             width,
             height,
             gain,
 
-            params,
-            workers: WorkerPool::new(queue_length),
-            n_threads,
-            state: State::new(vec![Pixel::default(); width * height], 0),
-        };
-
-        res.spawn_threads();
-
-        res
+            manager,
+            state: result_buffer
+        }
     }
 
     pub fn width(&self) -> u32 {
@@ -153,26 +183,145 @@ impl<R: Rule + 'static> World<R> {
     }
 
     pub fn stop(&mut self) {
-        for msg in self.workers.stop() {
-            self.state.combine(msg);
-        }
+        for _ in self.manager.stop() {}
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
         self.width = width as usize;
         self.height = height as usize;
 
-        self.state.reset(self.width, self.height);
+        self.state.lock().unwrap().reset(self.width, self.height);
 
-        for _ in self.workers.stop() {}
+        self.manager.broadcast(DownMsg::Other(ManagerMsg::Resize(self.width, self.height)));
+    }
+
+
+    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
+    pub fn draw(&self, frame: &mut [u8]) {
+        use std::ops::Neg;
+
+        let state = self.state.lock().unwrap();
+
+        let bg_r = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_g = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
+        let bg_b = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
+
+        // Nothing to draw, simply fill the buffer with the background color
+        if state.steps == 0 || state.pixels.len() * 4 != frame.len() {
+            for pixel in frame.chunks_exact_mut(4) {
+                pixel[0] = bg_r;
+                pixel[1] = bg_g;
+                pixel[2] = bg_b;
+                pixel[3] = 255;
+            }
+            return;
+        }
+
+        let ratio = self.width as f64 * self.height as f64 / state.steps as f64 * self.gain;
+
+        // Draw all the pixels
+        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
+            if i > self.width * self.height {
+                break;
+            }
+
+            let p = state.pixels[i];
+            let a = 1.0 - (p.n * ratio).neg().exp();
+            let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+            let b = ((p.b_sum / p.n * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
+
+            if p.n > 0.0 {
+                pixel[0] = r;
+                pixel[1] = g;
+                pixel[2] = b;
+                pixel[3] = 255;
+            } else {
+                pixel[0] = bg_r;
+                pixel[1] = bg_g;
+                pixel[2] = bg_b;
+                pixel[3] = 255;
+            }
+        }
+    }
+
+    pub fn steps(&self) -> usize {
+        self.state.lock().unwrap().steps
+    }
+
+    pub fn mse(&self) -> f64 {
+        if cfg!(feature = "sigma") {
+            let mut res = 0.0;
+            let state = self.state.lock().unwrap();
+
+            for pixel in state.pixels.iter() {
+                res += pixel.error_squared();
+            }
+
+            res / state.pixels.len() as f64
+        } else {
+            0.0
+        }
+    }
+}
+
+impl<R: Rule + 'static> Manager<R> {
+    fn run(mut self, _tx: WorkerSender<()>, rx: Receiver<DownMsg<ManagerMsg>>) {
         self.spawn_threads();
+
+        loop {
+            if let Some(msg) = worker_pool::try_recv_break!(rx) {
+                match msg {
+                    ManagerMsg::Resize(width, height) => self.resize(width, height)
+                }
+            }
+
+            self.update();
+            std::thread::sleep(std::time::Duration::new(0, 10_000_000));
+        }
+
+        self.stop();
+        *self.result_buffer.lock().unwrap() = self.state;
+    }
+
+    fn stop(&mut self) {
+        for msg in self.workers.stop() {
+            self.state.combine(msg);
+        }
+    }
+
+    fn update(&mut self) {
+        let mut received_msg = false;
+        for msg in self.workers.recv_burst() {
+            self.state.combine(msg);
+            received_msg = true;
+        }
+
+        if received_msg {
+            if let Ok(mut result_buffer) = self.result_buffer.lock() {
+                if result_buffer.width == self.state.width && result_buffer.height == self.state.height {
+                    result_buffer.steps = self.state.steps;
+                    for (target, src) in result_buffer.pixels.iter_mut().zip(self.state.pixels.iter()) {
+                        *target = src.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    fn resize(&mut self, width: usize, height: usize) {
+        self.state.reset(width, height);
+
+        self.workers.broadcast(DownMsg::Other(ManagerMsg::Resize(width, height)));
+        // for _ in self.workers.stop() {}
+        // self.spawn_threads();
     }
 
     fn spawn_threads(&mut self) {
         let params = self.params.clone();
-        let pixels = vec![Pixel::default(); self.width * self.height];
-        let width = self.width;
-        let height = self.height;
+        let pixels = vec![Pixel::default(); self.state.width * self.state.height];
+        let width = self.state.width;
+        let height = self.state.height;
         self.workers.execute_many(self.n_threads, move |tx, rx| {
             let worker = Worker {
                 pixels,
@@ -186,69 +335,10 @@ impl<R: Rule + 'static> World<R> {
             worker.run(tx, rx);
         });
     }
-
-    pub fn update(&mut self) {
-        for msg in self.workers.recv_burst() {
-            self.state.combine(msg);
-        }
-    }
-
-    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-    pub fn draw(&self, frame: &mut [u8]) {
-        use std::ops::Neg;
-        if self.steps() == 0 {
-            return;
-        }
-
-        let ratio = self.width as f64 * self.height as f64 / self.steps() as f64;
-        let ratio = ratio * self.gain;
-
-        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-            if i > self.width * self.height {
-                break;
-            }
-
-            let p = &self.state.pixels[i];
-            let a = 1.0 - (p.n * ratio).neg().exp();
-            let r = ((p.r_sum / p.n * a + BG_R * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let g = ((p.g_sum / p.n * a + BG_G * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-            let b = ((p.b_sum / p.n * a + BG_B * (1.0 - a)).powf(1.0 / GAMMA) * 255.0) as u8;
-
-            if p.n > 0.0 {
-                pixel[0] = r;
-                pixel[1] = g;
-                pixel[2] = b;
-                pixel[3] = 255;
-            } else {
-                pixel[0] = (BG_R.powf(1.0 / GAMMA) * 255.0) as u8;
-                pixel[1] = (BG_G.powf(1.0 / GAMMA) * 255.0) as u8;
-                pixel[2] = (BG_B.powf(1.0 / GAMMA) * 255.0) as u8;
-                pixel[3] = 255;
-            }
-        }
-    }
-
-    pub fn steps(&self) -> usize {
-        self.state.steps
-    }
-
-    pub fn mse(&self) -> f64 {
-        if cfg!(feature = "sigma") {
-            let mut res = 0.0;
-
-            for pixel in self.state.pixels.iter() {
-                res += pixel.error_squared();
-            }
-
-            res / self.state.pixels.len() as f64
-        } else {
-            0.0
-        }
-    }
 }
 
 impl<R: Rule> Worker<R> {
-    pub fn run(mut self, tx: WorkerSender<State>, rx: Receiver<DownMsg<()>>) {
+    pub fn run(mut self, tx: WorkerSender<State>, rx: Receiver<DownMsg<ManagerMsg>>) {
         use rand::Rng;
 
         self.params.rule.reseed(&rand::thread_rng().gen());
@@ -257,7 +347,17 @@ impl<R: Rule> Worker<R> {
         let mut first_iteration = true;
 
         loop {
-            let _ = worker_pool::try_recv_break!(rx);
+            if let Some(msg) = worker_pool::try_recv_break!(rx) {
+                match msg {
+                    ManagerMsg::Resize(width, height) => {
+                        self.width = width;
+                        self.height = height;
+                        self.steps = 0;
+                        self.pixels = vec![Pixel::default(); width * height];
+                        first_iteration = true;
+                    }
+                }
+            }
 
             let mut point = Point::new(0.0, 0.0, (0.0, 0.0, 0.0));
             let mut history = vec![0; 4];
@@ -299,9 +399,9 @@ impl<R: Rule> Worker<R> {
                 point = new_point;
             }
 
-            self.steps += self.params.steps * (1 + self.params.scatter_steps);
+            self.steps += n_steps * (1 + self.params.scatter_steps);
 
-            match tx.try_send(State::new(self.pixels, self.steps)) {
+            match tx.try_send(State::new(self.pixels, self.steps, self.width, self.height)) {
                 Ok(_) => {
                     self.pixels = vec![Pixel::default(); self.width * self.height];
                     self.steps = 0;
@@ -311,7 +411,7 @@ impl<R: Rule> Worker<R> {
             }
         }
 
-        tx.send(State::new(self.pixels, self.steps)).unwrap();
+        tx.send(State::new(self.pixels, self.steps, self.width, self.height)).unwrap();
     }
 
     #[inline]
@@ -358,18 +458,35 @@ impl<R: Rule> Clone for WorldParams<R> {
 }
 
 impl State {
-    pub fn new(pixels: Vec<Pixel>, steps: usize) -> Self {
+    pub fn empty(width: usize, height: usize) -> Self {
         Self {
-            pixels,
-            steps
+            pixels: vec![Pixel::default(); width * height],
+            steps: 0,
+            width,
+            height
         }
     }
 
-    pub fn combine(&mut self, other: State) {
+    pub fn new(pixels: Vec<Pixel>, steps: usize, width: usize, height: usize) -> Self {
+        assert!(pixels.len() == width * height);
+        Self {
+            pixels,
+            steps,
+            width,
+            height
+        }
+    }
+
+    pub fn combine(&mut self, other: State) -> bool {
+        if other.width != self.width || other.height != self.height {
+            return false
+        }
+
         self.steps += other.steps;
         for (from, to) in other.pixels.into_iter().zip(self.pixels.iter_mut()) {
             to.add_pixel(from);
         }
+        true
     }
 
     pub fn reset(&mut self, width: usize, height: usize) {
@@ -380,6 +497,8 @@ impl State {
         } else {
             self.pixels = vec![Pixel::default(); width * height];
         }
+        self.width = width;
+        self.height = height;
         self.steps = 0;
     }
 }
